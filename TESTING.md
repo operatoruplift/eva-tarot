@@ -4,6 +4,14 @@ Upgrade date: 7 October 2026 (Asia/Ho_Chi_Minh).
 
 Last updated: 9 October 2026.
 
+## Conversational prose candidate — not deployed, 9 October 2026
+
+- Removed minimum word counts and the requirement to repeat five labels per card. The candidate still requests every card's meaning, helpful possibility, possible difficulty, advice with a reason, and concrete action, in connected paragraphs under the card name and position. Vietnamese uses a native-language writing brief and a clearly separate fictional prose example. The optional local prompt receives the compact paragraph format without changing context or output budgets.
+- All 171 automated tests and the production build pass. Existing tests retain canonical card context, language, continuation/follow-up behavior, privacy and budget coverage; obsolete exact-label and word-quota assertions were removed. Unit tests do not establish prose quality.
+- **Live quality gate failed.** Fresh original readings, rather than only clarification follow-ups, were compared in Vietnamese and English for one-, three- and ten-card scenarios. Available-model outputs still repeated abstract phrasing, added unreported traits, or suggested preparation outside a stated total time. Prompt simplification, an editorial rewrite experiment and alternate available models did not establish a reliable improvement. None of the experimental models, extra calls, reasoning settings or SDK dependencies were added to the app.
+- Gateway tests for `anthropic/claude-sonnet-4.5`, `anthropic/claude-sonnet-4.6` and `openai/gpt-5.4` returned HTTP 403. The provider's `no_providers_available` error explicitly states that free-tier users must add paid AI Gateway credits for unrestricted model access. A billing card and usable free credits do not establish access to those models. The user has been asked to add paid credits before further model verification; stronger-model quality remains unverified.
+- Production remains the previous release documented below. The source still defaults to GPT-4.1; no model, API contract, storage behavior, privacy permission, deadline, WAF limit or $5 non-refreshing Gateway budget was changed. Candidate source and the style example are prepared for the next live evaluation, not approved for production.
+
 ## Everyday reading explanations — 9 October 2026
 
 - Hosted readings now use explicit everyday-language guidance, native Vietnamese first-reading instructions, and a clearly hypothetical writing example. All five sections per card remain. Brief clarification questions receive a direct answer rather than another whole spread. The prompts preserve the user's stated time, supplies and boundaries and ask for one prioritized starting point.

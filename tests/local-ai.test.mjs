@@ -17,7 +17,6 @@ test('local prompt grounds the actual draw in canonical numbered cards and lates
   assert.match(context.at(-1).content, /USER QUESTION:\nShould I change my job\?/);
   assert.match(context.at(-1).content, /For EVERY card/);
   assert.match(context.at(-1).content, /exact name and spread position/);
-  for (const label of ['Meaning', 'Good side', 'Difficult side', 'Advice', 'Clear direction']) assert.ok(context.at(-1).content.includes(label));
   assert.ok(context.some(message => message.content.includes('hours are long')));
   assert.match(context[0].content, /no flattery/);
   assert.match(context[0].content, /not a glossary/);
@@ -105,7 +104,6 @@ test('a first five-card reading requires all card headings and concrete connecti
   const context = buildReadingContext({ question: 'Should I take the higher-paying job with a longer commute, or stay with my supportive team?', focus: 'Career', cards: draw });
   const request = context.at(-1).content;
   for (const card of draw) assert.ok(request.includes(card.name));
-  assert.match(request, /about 550–750 words/);
   assert.match(request, /Cover all 5 cards/);
   assert.match(request, /everyday example or practical implication/);
   assert.match(request, /connection or tension between at least two named cards/);
@@ -205,13 +203,11 @@ test('changing or removing a reader is locked while device setup is in progress'
 });
 
 
-test('every first reading requests all five practical sections in English and Vietnamese', () => {
+test('every spread retains practical guidance within the local context window in English and Vietnamese', () => {
   for (const count of [1,3,5,10]) {
     for (const language of ['en','vi']) {
       const context = buildReadingContext({question:'What direction could help with this choice?',focus:'',cards:cards.slice(0,count),language});
       const request = context.at(-1).content;
-      const labels = language === 'vi' ? ['Ý nghĩa','Mặt thuận lợi','Mặt khó khăn','Lời khuyên','Hướng đi cụ thể'] : ['Meaning','Good side','Difficult side','Advice','Clear direction'];
-      for (const label of labels) assert.ok(request.includes(label), `${count} ${language} missing ${label}`);
       assert.match(request,/including for positive cards/);
       assert.match(request,/what to do or say/);
       const bytes=context.reduce((sum,message)=>sum+utf8Size(message.content),0);

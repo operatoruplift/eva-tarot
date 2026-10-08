@@ -92,16 +92,12 @@ function readingTask(input: ContextInput, selectedCount: number, language: strin
   }
   if (!selectedCount) return `Answer in ${language} from their concern and named feelings. Explain your suggestion with a familiar example that fits their limits. Prioritize one small next step, not a list of homework. No cards were drawn: do not pretend there is a tarot reading. If context is thin, ask one useful question instead of guessing.`;
   if (input.followUp) return `Answer this follow-up in ${language} from the latest message and earlier user context. Acknowledge corrections; do not repeat the whole spread. Explain plainly what your advice means in their day, why it may help, and one small thing to try. Tie any example to a shared detail; do not invent motives or abilities. Cards are reflection prompts; leave aside any that do not fit. Respect their feelings and limits. Ask only if needed. Keep clarifications brief; add detail when useful.`;
-  const target = selectedCount === 10 ? '900–1200' : selectedCount === 5 ? '550–750' : selectedCount === 3 ? '350–500' : '200–300';
-  const labels = language === 'Vietnamese'
-    ? 'Ý nghĩa; Mặt thuận lợi; Mặt khó khăn; Lời khuyên; Hướng đi cụ thể'
-    : 'Meaning; Good side; Difficult side; Advice; Clear direction';
   const synthesis = selectedCount === 1
     ? 'Finally, connect this single card to the question. Do not introduce other cards.'
     : 'Finally, explain a connection or tension between at least two named cards. Pick one small step; others are optional.';
-  return `Write a ${selectedCount}-card reflection in ${language}, about ${target} words. Open with their situation and named feelings.
-For EVERY card in order: a heading with its exact name and spread position, then five paragraphs with bold labels: ${labels}.
-Use 1–2 sentences each. Meaning: explain the card using a detail from their chat. Good side: what may help. Difficult side: a conditional risk, including for positive cards. Advice: why an approach fits their limits. Clear direction: what to do or say next, with an everyday example or practical implication. Cover all ${selectedCount} cards. An obstacle needs a downside or blind spot. Do not force links or invent reversals; say when a connection is uncertain.
+  return `Write a ${selectedCount}-card reflection in ${language}. Open briefly with their situation and named feelings.
+For EVERY card in order: a heading with its exact name and spread position, then 2–3 connected paragraphs, not five labeled sections.
+Explain the simple meaning with a detail from their chat and its daily implication. Weave in a useful option (not praise), a conditional risk including for positive cards, why your advice fits their limits, and what to do or say next with one everyday example or practical implication. Let paragraph lengths vary naturally. Cover all ${selectedCount} cards. An obstacle needs a downside or blind spot. Do not force links or invent reversals; say when a connection is uncertain.
 ${synthesis}`;
 
 }
@@ -114,7 +110,7 @@ export function buildReadingContext(input: ContextInput): ContextMessage[] {
   }
   if (![0, 1, 3, 5, 10].includes(selected.length)) throw new Error('Choose one, three, five, or ten cards.');
   const tone = language === 'Vietnamese' ? ' Use “bạn” naturally.' : '';
-  const rules = `You are Eva Tarot, an AI companion. Reply in ${language}; address the user directly, never as them. User context leads; cards are inspiration, not evidence or predictions. Prioritize their latest corrections, circumstances, feelings and limits. Earlier assistant replies are fallible interpretations, never facts about the user. Acknowledge only feelings they actually named. Use short spoken sentences and familiar words, not a glossary. Examples are possibilities, not facts. Be warm: no flattery, invented experience, motives, skills, fate, diagnoses or guaranteed future. Never invent cards or override user facts. Ask when unsure.${tone}`;
+  const rules = `You are Eva Tarot, an AI companion. Reply in ${language}; address the user directly, never as them. User context leads; cards are inspiration, not evidence or predictions. Prioritize their latest corrections, circumstances, feelings and limits. Earlier assistant replies are fallible interpretations, never facts about the user. Acknowledge only feelings they actually named. Use everyday spoken language, not a glossary or repeated encouragement. Examples are possibilities, not facts. Be warm: no flattery, invented experience, motives, skills, fate, diagnoses or guaranteed future. Never invent cards or override user facts. Ask when unsure.${tone}`;
   if (!input.question.trim()) throw new Error('Write a question to start the conversation.');
   const previous = (input.history ?? []).filter(message => message.content.trim());
   if (previous.at(-1)?.role === 'user' && previous.at(-1)?.content.trim() === input.question.trim()) previous.pop();
