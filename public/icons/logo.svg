@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 100 100">
+  <title>Eva Tarot lotus and rising sun</title>
+  <g fill="none" stroke="#E2C496" stroke-width="2.2" stroke-linecap="round">
+    <path d="M50 9v9M33 13l3.4 8.4M19.5 24l6.8 5.8M12 40l8.9 2.1M67 13l-3.4 8.4M80.5 24l-6.8 5.8M88 40l-8.9 2.1"/>
+  </g>
+  <circle cx="50" cy="38" r="17" fill="#E2C496"/>
+  <g fill="#FDFBF7" stroke="#8A937C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M50 84C33 77 20 57 22 38C40 40 54 60 50 84Z"/>
+    <path d="M50 84C67 77 80 57 78 38C60 40 46 60 50 84Z"/>
+    <path d="M50 84C34 71 31 49 50 31C69 49 66 71 50 84Z"/>
+    <path d="M50 84C29 87 13 76 9 63C27 56 43 65 50 84Z"/>
+    <path d="M50 84C71 87 87 76 91 63C73 56 57 65 50 84Z"/>
+  </g>
+</svg>

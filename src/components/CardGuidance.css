@@ -1,0 +1,12 @@
+.card-guidance{display:grid;gap:12px;text-align:left;margin-top:24px}
+.card-guidance .guidance-section{padding:17px 18px;border:1px solid #e1e6d7;border-radius:19px;background:#fffefb}
+.card-guidance .guidance-section h3{display:flex;align-items:center;gap:9px;font-family:inherit;font-size:13px;font-weight:650;line-height:1.5;color:#41583c;margin:0 0 9px}
+.card-guidance .guidance-section p{margin:0;font-size:14px;line-height:1.8;color:#59664f}
+.card-guidance .guidance-good{background:#f1f5e9;border-color:#dce5cf}
+.card-guidance .guidance-challenge{background:#f8f0e9;border-color:#ecdccd}
+.card-guidance .guidance-challenge h3{color:#805c44}
+.card-guidance .guidance-direction{background:#eaf0de;border-color:#d1ddbf}
+.card-guidance .guidance-direction h3{color:#405e36}
+.card-guidance .guidance-language-note{font-size:12px;line-height:1.6;color:#68785b;margin:0}
+.card-detail .close-card-details{width:100%;margin-top:8px;min-height:48px}
+@media(max-width:365px){.card-guidance .guidance-section{padding:15px}.card-guidance .guidance-section p{font-size:13px}}

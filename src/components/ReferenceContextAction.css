@@ -1,0 +1,42 @@
+.reference-context-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  text-align: left;
+}
+
+.reference-context-action > p {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #64715b;
+}
+
+.reference-context-action > button {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 10px 16px;
+  border: 1px solid #d8e1cf;
+  border-radius: 14px;
+  background: var(--sage-light);
+  color: #48603d;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.reference-context-action > button:hover:not(:disabled) {
+  background: #e4ebdc;
+  border-color: #b8c8a9;
+}
+
+.reference-context-action > button:focus-visible {
+  outline: 2px solid var(--deep-sage);
+  outline-offset: 3px;
+}

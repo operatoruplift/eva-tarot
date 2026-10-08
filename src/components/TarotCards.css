@@ -1,0 +1,53 @@
+.simple-draw-panel.tarot-draw-panel{position:relative;padding:25px 24px 22px;background:radial-gradient(ellipse at 50% 0,#fffaf0 0,transparent 65%),#f0f4e9;border:1px solid #dfe6d5;border-radius:27px;box-shadow:0 5px 18px #455b3505;overflow:visible}
+.tarot-draw-panel .lotus-shuffle-stage{position:relative;width:236px;max-width:100%;height:166px;margin:0 auto 8px;isolation:isolate;pointer-events:none}
+.lotus-shuffle-stage .shuffle-halo{position:absolute;inset:4px 16px 0;border-radius:50%;background:radial-gradient(ellipse,#eedfb956,#e7edd72b 60%,transparent 73%)}
+.lotus-shuffle-stage .shuffle-card{position:absolute;top:13px;left:50%;width:77px;height:125px;transform:translateX(calc(-50% + var(--fan-x))) rotate(var(--fan-turn));transform-origin:50% 100%;filter:drop-shadow(0 8px 7px #4d633520);will-change:auto}
+.lotus-shuffle-stage .shuffle-card:nth-of-type(4){z-index:2}
+.lotus-shuffle-stage .card-back{width:100%;height:100%;border:1px solid #b9c6a8;padding:4px;border-radius:11px;background:linear-gradient(145deg,#a1b08b,#82986d);box-shadow:inset 0 0 0 2px #c4d0b070}
+.lotus-shuffle-stage .card-back-border{position:relative;border:1px solid #e5d4a6bd;border-radius:7px;background:radial-gradient(ellipse at 50% 45%,#cad4b835,transparent 65%);gap:3px;padding:9px 3px}
+.tarot-draw-panel .lotus-shuffle-stage .lotus-mark{width:44px;height:44px;filter:drop-shadow(0 1px 2px #3c57221a)}
+.lotus-shuffle-stage .back-wordmark{font-family:var(--serif);font-size:10px;letter-spacing:.7px;color:#fff7dc}
+.lotus-shuffle-stage .card-corner{font-size:9px;color:#eee0b5}.lotus-shuffle-stage .card-back-dots{font-size:8px;letter-spacing:1px;color:#eee0b5}
+.lotus-shuffle-stage .shuffle-glint{position:absolute;color:#bd9e62;line-height:1;font-family:var(--serif)}
+.lotus-shuffle-stage .glint-one{left:3px;top:50px;font-size:25px}.lotus-shuffle-stage .glint-two{right:9px;top:28px;font-size:15px}
+.tarot-draw-panel.is-shuffling .shuffle-card{animation:lotusDeckShuffle .94s cubic-bezier(.45,0,.25,1) var(--shuffle-delay) both;will-change:transform}
+.tarot-draw-panel.is-shuffling .shuffle-glint{animation:lotusShuffleGlint .55s ease-in-out 2 alternate}
+.tarot-draw-panel .draw-eyebrow{display:block;margin:0 0 9px;font-size:9px;letter-spacing:1.7px;color:#5f704d}
+.simple-draw-panel.tarot-draw-panel h2{font-size:33px;line-height:1.16;margin:0 0 10px;color:#3f5637}
+.simple-draw-panel.tarot-draw-panel>p{max-width:310px;font-size:12px;line-height:1.8;color:#5f704d;margin-bottom:19px}
+.tarot-draw-panel .draw-spread-choice{max-width:330px;margin:13px auto;color:#5f704d;font-size:12px}
+.tarot-draw-panel .draw-primary{max-width:330px;min-height:48px;border-radius:16px;box-shadow:0 5px 11px #566f3720}
+.tarot-draw-panel .manual-draw-toggle{display:flex;justify-content:center;gap:7px;margin:5px auto 0;min-height:44px;font-size:12px;color:#5f704d}
+.tarot-draw-panel .lotus-manual-draw{border-top:1px solid #dce5ce;padding-top:14px;margin-top:7px}
+.lotus-manual-draw .manual-deck-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 10px;margin-bottom:7px}
+.lotus-manual-draw .selection-count{display:flex;align-items:center;gap:6px;font-size:11px;min-height:44px;color:#536a41}
+.lotus-manual-draw .selection-count>svg{color:#7e965f}
+.lotus-manual-draw .reshuffle-button{display:flex;align-items:center;gap:6px;min-height:44px;padding:0 3px;font-size:11px;color:#5f704d;border-radius:10px}
+.lotus-manual-draw .reshuffle-button:hover{color:#3d5a30;background:#e6edda}
+.lotus-manual-draw .lotus-selection-deck{display:grid;grid-template-columns:repeat(auto-fill,minmax(55px,1fr));gap:13px 9px;max-height:350px;overflow:auto;overscroll-behavior:contain;padding:10px 6px 12px;scrollbar-width:thin;scrollbar-color:#bac9a7 transparent;border-radius:16px;align-items:start}
+.lotus-selection-deck .lotus-pick-card{position:relative;display:block;min-width:44px;min-height:70px;width:100%;aspect-ratio:.63;border:0;padding:0;border-radius:9px;background:transparent;touch-action:manipulation;isolation:isolate;outline-offset:3px;transition:transform .18s,filter .18s,opacity .18s;animation:lotusCardDeal .36s ease-out var(--deal-delay) both}
+.lotus-selection-deck .pick-card-art{display:block;position:absolute;inset:0;border-radius:9px;transform:translateY(0);box-shadow:0 4px 7px #465c3020;transition:transform .2s,box-shadow .2s}
+.lotus-pick-card .card-back{width:100%;height:100%;padding:3px;border:1px solid #afc197;border-radius:9px;background:linear-gradient(145deg,#a3b88b,#819b69);box-shadow:inset 0 0 0 1px #dce4c586}
+.lotus-pick-card .card-back-border{position:relative;border:1px solid #e6d7aad9;border-radius:5px;padding:4px 2px;gap:2px;background:radial-gradient(ellipse at 50% 42%,#e3e8cd30,transparent 70%)}
+.tarot-draw-panel .lotus-pick-card .lotus-mark{width:65%;height:auto;max-width:39px;filter:drop-shadow(0 1px 1px #4b643328)}
+.lotus-pick-card .back-wordmark{font-family:var(--serif);font-size:7px;letter-spacing:.5px;line-height:1.4;color:#fff7de}
+.lotus-pick-card .card-corner{font-size:7px;color:#fff0c9}.lotus-pick-card .card-corner.tl{top:2px;left:3px}.lotus-pick-card .card-corner.br{bottom:2px;right:3px}
+.lotus-pick-card .card-back-dots{font-size:6px;letter-spacing:1px;color:#f5e9bf}
+.lotus-selection-deck .lotus-pick-card:focus-visible{outline:2px solid #6b824e}
+.lotus-selection-deck .lotus-pick-card.is-selected .pick-card-art{transform:translateY(-5px);box-shadow:0 0 0 2px #b69a61,0 6px 10px #4c613025}
+.lotus-pick-card.is-selected .card-back{background:linear-gradient(145deg,#92ab75,#718e59)}
+.lotus-pick-card .pick-card-check{position:absolute;right:-5px;top:-10px;display:grid;place-items:center;width:23px;height:23px;border:2px solid #f1f4e9;border-radius:50%;background:#597443;color:#fff9e8;box-shadow:0 2px 4px #43572c16;z-index:1}
+.lotus-selection-deck .lotus-pick-card:disabled{opacity:.46;cursor:default}
+.lotus-manual-draw .manual-shuffle-wait{display:grid;place-items:center;min-height:115px;font-size:12px;line-height:1.7;color:#5f704d;padding:18px}
+.lotus-manual-draw .manual-reveal-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:13px;margin-top:17px;border-top:1px solid #dce5ce;padding-top:15px}
+.manual-reveal-footer>span{font-size:10px;color:#5f704d;line-height:1.6;text-align:left;max-width:145px}
+.manual-reveal-footer .primary-button{min-height:46px;padding:0 15px;font-size:12px;border-radius:15px}
+.revealed-spread>.card-detail-hint{display:flex;align-items:flex-start;gap:7px;font-size:11px;line-height:1.7;color:#5f704d;margin:4px 0 20px}
+.card-detail-hint>svg{flex:none;margin-top:2px}
+@media(hover:hover){.lotus-selection-deck .lotus-pick-card:not(:disabled):hover .pick-card-art{transform:translateY(-5px);box-shadow:0 7px 13px #465c3030}.lotus-selection-deck .lotus-pick-card.is-selected:hover .pick-card-art{box-shadow:0 0 0 2px #b69a61,0 7px 13px #465c3030}}
+@media(max-width:760px){.simple-draw-panel.tarot-draw-panel{padding:22px 14px 19px;border-radius:23px}.tarot-draw-panel .lotus-shuffle-stage{width:215px;height:151px}.lotus-shuffle-stage .shuffle-card{width:70px;height:114px;top:10px}.simple-draw-panel.tarot-draw-panel h2{font-size:29px}.simple-draw-panel.tarot-draw-panel>p{font-size:12px;max-width:250px}.lotus-manual-draw .lotus-selection-deck{grid-template-columns:repeat(auto-fill,minmax(48px,1fr));gap:13px 8px;max-height:323px;padding-inline:5px}.manual-reveal-footer>span{max-width:none;flex:1;min-width:80px}.manual-reveal-footer .primary-button{padding-inline:12px}.revealed-spread>.card-detail-hint{font-size:10px}}
+@media(max-width:365px){.simple-draw-panel.tarot-draw-panel{padding-inline:12px}.tarot-draw-panel .lotus-shuffle-stage{width:198px}.lotus-shuffle-stage .shuffle-card{width:63px;height:104px}.lotus-manual-draw .lotus-selection-deck{gap:12px 7px}.manual-reveal-footer .primary-button{width:100%}.manual-reveal-footer>span{text-align:center}.lotus-manual-draw .manual-reveal-footer{gap:10px}}
+@keyframes lotusDeckShuffle{0%,100%{transform:translateX(calc(-50% + var(--fan-x))) rotate(var(--fan-turn))}24%{transform:translateX(calc(-50% + var(--mix-x))) translateY(-11px) rotate(var(--mix-turn))}48%{transform:translateX(-50%) translateY(4px) rotate(0)}73%{transform:translateX(calc(-50% - var(--mix-x))) translateY(-7px) rotate(calc(-1 * var(--mix-turn)))}}
+@keyframes lotusShuffleGlint{from{opacity:.35;transform:scale(.8)}to{opacity:1;transform:scale(1.12)}}
+@keyframes lotusCardDeal{from{opacity:0;transform:translateY(-9px) rotate(-3deg)}to{opacity:1;transform:translateY(0) rotate(0)}}
+@media(prefers-reduced-motion:reduce){.tarot-draw-panel.is-shuffling .shuffle-card,.tarot-draw-panel.is-shuffling .shuffle-glint,.lotus-selection-deck .lotus-pick-card{animation:none}.lotus-selection-deck .lotus-pick-card,.lotus-selection-deck .pick-card-art{transition:none}.lotus-selection-deck .lotus-pick-card:not(:disabled):hover .pick-card-art,.lotus-selection-deck .lotus-pick-card.is-selected .pick-card-art{transform:none}}

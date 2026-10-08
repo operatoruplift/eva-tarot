@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+*.local
+playwright-report/
+test-results/
+
+*.tsbuildinfo
+
+.vercel/
+.vercel
+.env*
+!.env.example
+supabase/.temp/
