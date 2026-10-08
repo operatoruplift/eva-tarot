@@ -19,8 +19,12 @@ import { tarotVi } from './data/tarot-vi';
 import { readingCounts, spreadLabels } from './data/spreads';
 import type { TarotCard } from './data/tarot';
 import type { ReadingLanguage } from './data/spreads';
-import { generateDemoReading } from './lib/readings';
-import { getLocalAIState, subscribeLocalAI, enableLocalAI, generateLocalReading, cancelLocalAI, checkLocalAISupport } from './lib/local-ai';
+import { generateDemoReading, getReading } from './lib/readings';
+import { getLocalAIState, subscribeLocalAI, enableLocalAI, generateLocalReading, cancelLocalAI, disposeLocalAI } from './lib/local-ai';
+import { approveOnlineSession, needsOnlineApproval, readOnlineApproval, saveOnlineApproval, withReaderIntent, type ReaderMode } from './lib/reader-mode';
+import { OnlineDisclosure, ReaderOptions } from './components/ReaderOptions';
+import { MissingReading } from './components/MissingReading';
+import { routeHash, readRoute, legacyPathHash, type AppView, type MissingReadingReason } from './lib/routes';
 import { waitForReaderSave } from './lib/reader-save-gate';
 import { DEFAULT_READING_STYLE, latestQuestion, hasReplyForCurrentSpread, hasReplyToLatestQuestion } from './lib/conversation-flow';
 import { recommendSpread, conversationContext } from './lib/reading-context';
@@ -32,19 +36,18 @@ import { DomainTransfer } from './components/DomainTransfer';
 import { localDay } from './lib/storage';
 import type { Session } from './lib/storage';
 
-type View = 'home' | 'chat' | 'calendar' | 'breathe' | 'journal' | 'learn' | 'rituals';
+type View = AppView | 'missing';
 type Phase = 'idle' | 'shuffling' | 'picking';
 type InstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 const uid = () => crypto.randomUUID();
-const viewRoutes: Record<View, string> = {home:'chat',chat:'reading',calendar:'calendar',breathe:'breathe',journal:'journal',learn:'cards',rituals:'rituals'};
 const navItems = [
   {view:'home' as const,label:'Chat',icon:MessageCircle},
   {view:'calendar' as const,label:'Calendar',icon:CalendarDays},
   {view:'journal' as const,label:'History',icon:Bookmark},
   {view:'breathe' as const,label:'Breathe',icon:Wind},
 ];
-function routeTo(view: View, id?:string) {
-  const hash = `#${viewRoutes[view]}${view === 'chat' && id ? `/${id}` : ''}`;
+function routeTo(view: AppView, id?:string) {
+  const hash = routeHash(view,id);
   if (window.location.hash !== hash) window.history.pushState({evara:true},'',hash);
 }
 function Paragraphs({text}:{text:string}) {
@@ -62,6 +65,7 @@ export default function App() {
   const {profile,setProfile,sessions,setSessions,practiceDays,setPracticeDays,dayNotes,setDayNotes,ready} = data;
   const {t,language,setLanguage,locale,formatDate} = useLanguage();
   const [view,setView] = useState<View>('home');
+  const [missingReason,setMissingReason] = useState<MissingReadingReason>('missing');
   const [activeId,setActiveId] = useState<string|null>(null);
   const [input,setInput] = useState('');
   const [spread,setSpread] = useState(DEFAULT_READING_STYLE);
@@ -77,6 +81,11 @@ export default function App() {
   const [nameDraft,setNameDraft] = useState('');
   const [toast,setToast] = useState('');
   const [ai,setAI] = useState(getLocalAIState);
+  const [readerMode,setReaderMode] = useState<ReaderMode>('online');
+  const [showReaderOptions,setShowReaderOptions] = useState(false);
+  const [showOnlineDisclosure,setShowOnlineDisclosure] = useState(false);
+  const [initialOnlineApproval] = useState(() => { try { return readOnlineApproval(window.localStorage); } catch { return readOnlineApproval(); } });
+  const onlineApproval = useRef(initialOnlineApproval);
   const [showAI,setShowAI] = useState(false);
   const [preparingAI,setPreparingAI] = useState(false);
   const [aiStartupError,setAIStartupError] = useState('');
@@ -130,7 +139,7 @@ export default function App() {
   },[current?.messages.length,phase,view]);
 
   function clearSelection(){setVoiceContext(value=>value+1);if(startTimer.current)clearTimeout(startTimer.current);setPhase('idle');setSelected([]);setVoiceMessage('');}
-  function go(next:View,record=true){if(next==='home')setActiveId(null);if(next===view)return;clearSelection();setView(next);setInput('');if(record)routeTo(next);}
+  function go(next:AppView,record=true){if(next==='home')setActiveId(null);if(next===view)return;clearSelection();setView(next);setInput('');if(record)routeTo(next);}
   function newChat(){clearSelection();setActiveId(null);setInput('');setSpread(DEFAULT_READING_STYLE);setView('home');routeTo('home');}
   function openSettings(){setNameDraft(profile.name);setModal('settings');}
   function updateSession(id:string,update:(session:Session)=>Session){setSessions(previous=>previous.map(session=>session.id===id?update(session):session));}
@@ -142,10 +151,18 @@ export default function App() {
       setErrors(previous=>({...previous,[session.id]:t('Your conversation was paused. Continue whenever you’re ready.')}));
     }
   }
-  async function generate(session:Session,drawn:TarotCard[],question:string){
+  async function generate(session:Session,drawn:TarotCard[],question:string,mode:ReaderMode=readerMode){
     if(inFlight.current.has(session.id))return;
-    if(getLocalAIState().status!=='ready'){
-      pendingAI.current={session,drawn,question};setShowAI(true);void checkLocalAISupport();
+    if(mode==='local'){
+      session=withReaderIntent(session,'local');
+      updateSession(session.id,entry=>withReaderIntent(entry,'local'));
+    }
+    if(mode==='online'&&needsOnlineApproval(onlineApproval.current,session)){
+      pendingAI.current={session,drawn,question};setShowOnlineDisclosure(true);
+      setErrors(previous=>({...previous,[session.id]:t('Your question is kept here. Continue with Online AI when you’re ready.')}));return;
+    }
+    if(mode==='local'&&getLocalAIState().status!=='ready'){
+      pendingAI.current={session,drawn,question};setShowAI(true);
       setErrors(previous=>({...previous,[session.id]:t('Your question is in this chat. Start private AI to continue this conversation.')}));return;
     }
     const controller=new AbortController();replyControllers.current.set(session.id,controller);
@@ -153,13 +170,38 @@ export default function App() {
     setStreaming(previous=>({...previous,[session.id]:''}));
     try{
       await waitForReaderSave(data.flush,controller.signal);
-      const text=await generateLocalReading({signal:controller.signal,question,focus:session.focus,cards:drawn,language:language as ReadingLanguage,followUp:hasReplyForCurrentSpread(session.messages),history:conversationContext(session.messages),onToken:text=>setStreaming(previous=>({...previous,[session.id]:text}))});
+      const request={signal:controller.signal,question,focus:session.focus,cards:drawn,language:language as ReadingLanguage,followUp:hasReplyForCurrentSpread(session.messages),history:conversationContext(session.messages)};
+      const text=mode==='online'?(await getReading(request)).text:await generateLocalReading({...request,onToken:text=>setStreaming(previous=>({...previous,[session.id]:text}))});
+      if(controller.signal.aborted)throw new DOMException('Reply stopped.','AbortError');
       if(text.trim()){
-        updateSession(session.id,entry=>({...entry,messages:[...entry.messages,{id:uid(),createdAt:new Date().toISOString(),role:'assistant',text,mode:'local'}]}));
+        updateSession(session.id,entry=>({...entry,messages:[...entry.messages,{id:uid(),createdAt:new Date().toISOString(),role:'assistant',text,mode:mode==='online'?'ai':'local'}]}));
         // Persistence owns save failures and retries; do not regenerate this answer.
       }
     }catch(cause){setErrors(previous=>({...previous,[session.id]:cause instanceof DOMException&&cause.name==='AbortError'?t('Reply stopped. Your question is still in this chat.'):cause instanceof Error?t(cause.message):t('Your reading could not be completed. Please try again.')}));}
     finally{replyControllers.current.delete(session.id);inFlight.current.delete(session.id);setLoadingIds(new Set(inFlight.current));setStreaming(previous=>{const next={...previous};delete next[session.id];return next;});}
+  }
+  function confirmOnline(){
+    const pending=pendingAI.current;if(!pending){setShowOnlineDisclosure(false);return;}
+    onlineApproval.current=approveOnlineSession(onlineApproval.current,pending.session.id);
+    let saved=false;try{saved=saveOnlineApproval(onlineApproval.current,window.localStorage);}catch{/* This visit still has explicit approval. */}
+    if(!saved)setToast(t('Your choice applies to this visit. This browser could not remember it.'));
+    pendingAI.current=null;setShowOnlineDisclosure(false);
+    const session=withReaderIntent(pending.session,'online');
+    updateSession(session.id,entry=>withReaderIntent(entry,'online'));
+    void generate(session,pending.drawn,pending.question,'online');
+  }
+  function closeOnlineDisclosure(){setShowOnlineDisclosure(false);pendingAI.current=null;}
+  function chooseReader(mode:ReaderMode){
+    if(inFlight.current.size)return;
+    setReaderMode(mode);setShowReaderOptions(false);
+    if(mode==='online'){
+      cancelReaderSetup();disposeLocalAI();setShowAI(false);
+      const pending=pendingAI.current;pendingAI.current=null;
+      if(pending)void generate(pending.session,pending.drawn,pending.question,'online');
+    }else{
+      if(current)updateSession(current.id,entry=>withReaderIntent(entry,'local'));
+      setShowAI(true);
+    }
   }
   async function enableAI(){
     if(enablingAI.current||getLocalAIState().status==='generating')return;
@@ -167,14 +209,16 @@ export default function App() {
     enablingAI.current=true;setPreparingAI(true);setAIStartupError('');
     try{
       // Commit the journal before a large download or GPU allocation can interrupt the page.
+      const pending=pendingAI.current;
+      if(pending){pending.session=withReaderIntent(pending.session,'local');updateSession(pending.session.id,entry=>withReaderIntent(entry,'local'));}
       await data.flush();
       if(attempt!==aiSetupAttempt.current)return;
       setPreparingAI(false);
       await enableLocalAI();
       if(attempt!==aiSetupAttempt.current)return;
       setShowAI(false);
-      const pending=pendingAI.current;pendingAI.current=null;
-      if(pending)void generate(pending.session,pending.drawn,pending.question);
+      const resumed=pendingAI.current;pendingAI.current=null;
+      if(resumed)void generate(resumed.session,resumed.drawn,resumed.question,'local');
     }catch(cause){if(attempt===aiSetupAttempt.current)setAIStartupError(cause instanceof Error?t(cause.message):t('The reader could not start. Please try again.'));}
     finally{if(attempt===aiSetupAttempt.current){enablingAI.current=false;setPreparingAI(false);}}
   }
@@ -192,6 +236,7 @@ export default function App() {
     if(!editing)return;
     const source=sessions.find(session=>session.id===editing.session.id)||editing.session;
     const revision=reviseConversation(source,editing.messageId,question,title,{id:uid(),now:new Date().toISOString(),keepCards,count});
+    if(readerMode==='local'||needsOnlineApproval(onlineApproval.current,source))revision.privateReader=true;
     revision.note=note;setSessions(previous=>[revision,...previous]);setEditing(null);openSession(revision);
     if(keepCards||count===0)void generate(revision,[...revision.messages].reverse().find(message=>message.cards?.length)?.cards||[],question);
     setToast(t('New version created. Your original reading is kept in History.'));
@@ -203,7 +248,7 @@ export default function App() {
     const listing=/(?:78|toan bo|full|entire).*(?:deck|bai)|(?:list|show|liet ke|sap xep).*(?:cards|deck|bai)/.test(normalized);
     const recommendation=recommendSpread(question,[]);
     const automatic=count===-1;count=listing?0:automatic?recommendation.count:count;
-    const session:Session={id:uid(),title:daily?t('My daily reflection'):question,focus:daily?'Daily reflection':count===0?'Conversation':'A little direction',date:new Date().toISOString(),messages:[{id:uid(),createdAt:new Date().toISOString(),role:'user',text:question}],saved:false,note:'',daily,drawCount:count};
+    const session:Session={id:uid(),title:daily?t('My daily reflection'):question,focus:daily?'Daily reflection':count===0?'Conversation':'A little direction',date:new Date().toISOString(),messages:[{id:uid(),createdAt:new Date().toISOString(),role:'user',text:question}],saved:false,note:'',daily,drawCount:count,privateReader:readerMode==='local'};
     if(count>0)session.messages.push({id:uid(),createdAt:new Date().toISOString(),role:'assistant',text:automatic?`${t('Suggested spread: {count} cards.',{count})} ${t(recommendation.reason)}\n\n${t('Draw when you’re ready, or choose a different spread below.')}`:t('A {count}-card reading. Draw when you’re ready.',{count})});
     setSessions(previous=>[session,...previous]);setActiveId(session.id);setView('chat');routeTo('chat',session.id);
     if(listing){const text=`${t('Here is your complete 78-card deck, in order.')}\n\n${cards.map(card=>`${card.id+1}. ${language==='vi'?tarotVi[card.id].name+' · '+card.name:card.name}`).join('\n')}\n\n${t('Fool to World, then Wands, Cups, Swords and Pentacles. Each suit runs Ace to King. The app uses Rider–Waite–Smith artwork, not the Gilded Tarot illustrations.')}`;updateSession(session.id,entry=>({...entry,messages:[...entry.messages,{id:uid(),createdAt:new Date().toISOString(),role:'assistant',text}]}));return;}
@@ -258,11 +303,18 @@ export default function App() {
   }
   const routeReader=useRef(()=>{});
   routeReader.current=()=>{
-    const [route,id]=window.location.hash.slice(1).split('/');
-    if(route==='reading'){const session=sessions.find(entry=>entry.id===id);if(session){openSession(session,false);return;}}
-    const next=(Object.keys(viewRoutes) as View[]).find(key=>viewRoutes[key]===route)||'home';go(next==='chat'?'home':next,false);
+    const route=readRoute(window.location.hash,sessions);
+    if(route.view==='chat'){const session=sessions.find(entry=>entry.id===route.sessionId);if(session)openSession(session,false);return;}
+    if(route.view==='missing'){clearSelection();setActiveId(null);setMissingReason(route.reason);setView('missing');return;}
+    go(route.view,false);
   };
-  useEffect(()=>{if(!ready||data.needsRecovery)return;routeReader.current();if(!window.location.hash)window.history.replaceState({evara:true},'','#chat');const back=()=>routeReader.current();window.addEventListener('popstate',back);return()=>window.removeEventListener('popstate',back);},[ready,data.needsRecovery]);
+  useEffect(()=>{
+    if(!ready||data.needsRecovery)return;
+    if(!window.location.hash){const legacy=legacyPathHash(window.location.pathname);window.history.replaceState({evara:true},'',`${legacy?'/':window.location.pathname}${window.location.search}${legacy||'#chat'}`);}
+    routeReader.current();
+    const back=()=>routeReader.current();window.addEventListener('popstate',back);window.addEventListener('hashchange',back);
+    return()=>{window.removeEventListener('popstate',back);window.removeEventListener('hashchange',back);};
+  },[ready,data.needsRecovery]);
 
   const shownSessions=sessions.filter(session=>(!savedOnly||session.saved)&&`${session.title} ${session.note} ${session.messages.map(m=>m.text).join(' ')}`.toLocaleLowerCase(locale).includes(search.toLocaleLowerCase(locale)));
   const pageTitle=t(view==='calendar'?'Calendar':view==='journal'?'All conversations':view==='breathe'?'A softer moment':view==='learn'?'Meet the cards':view==='rituals'?'Daily rituals':view==='chat'?'Your conversation':'Eva Tarot');
@@ -294,6 +346,7 @@ export default function App() {
       {data.limitedStorage&&<p className="limited-storage-note">{t('This browser has limited storage. Export a backup regularly to keep your data safe.')}</p>}
       {data.status==='error'&&<div className="save-warning" role="alert"><span>{t('Your latest changes could not be saved. Export a copy to keep them safe.')}</span><button onClick={()=>void data.retrySave()}>{t('Try again')}</button><button onClick={exportData}>{t('Export')}</button></div>}
       <div className={`scroll-area ${view==='chat'?'chat-scroll':''}`} ref={scrollRef}>
+        {view==='missing'&&<MissingReading reason={missingReason} onHistory={()=>go('journal')} onNewConversation={newChat}/>}
         {view==='home'&&<section className="chat-home screen-enter">
           <div className="home-chat-symbol" role="img" aria-label={t('Eva Tarot lotus logo')}><i className="lotus-orbit"/><Logo size={104}/><span className="lotus-glint" aria-hidden="true">✧</span></div>
           <span className="eyebrow">{t('A LITTLE CLARITY, JUST FOR YOU')}</span>
@@ -306,7 +359,7 @@ export default function App() {
             ['Just talk','I feel stuck lately. Can we talk through what’s going on?','A moment for me']
           ].map(([label,prompt,caption],index)=><button className={`question-example example-${index}`} key={label} onClick={()=>{setInput(t(prompt));setSpread(label==='Just talk'?0:-1);textareaRef.current?.focus();}}><span className="example-icon" aria-hidden="true">{index===0?<Heart size={20}/>:index===1?<Compass size={20}/>:<MessageCircle size={20}/>}</span><span className="example-copy"><span>{t(label)}</span><strong>{t(caption)}</strong></span><ArrowRight size={17}/></button>)}</div>
           <div className="home-quick-actions"><button onClick={daily}><span className="quick-action-icon"><Sun size={20}/></span><span>{t(dailySession?'Revisit my card':'Daily card')}<small>{t('A little ritual for today')}</small></span><ArrowRight size={16}/></button><button onClick={()=>go('learn')}><span className="quick-action-icon"><Compass size={20}/></span><span>{t('Explore 78 cards')}<small>{t('Get to know your deck')}</small></span><ArrowRight size={16}/></button></div>
-          <button className={`private-ai-status ${ai.status==='ready'?'ready':''}`} onClick={()=>{pendingAI.current=null;setShowAI(true);void checkLocalAISupport();}}><ShieldCheck size={15}/>{t(ai.status==='ready'?'Private AI is ready':'Set up private AI')}<ChevronRight size={15}/></button>
+          <button className="private-ai-status ready" onClick={()=>{pendingAI.current=null;setShowReaderOptions(true);}}><MessageCircle size={15}/>{t(readerMode==='online'?'Online AI · no download needed':'On-device AI · experimental')}<ChevronRight size={15}/></button>
         </section>}
         {view==='rituals'&&<TodayScreen hasDaily={!!dailySession} days={completedDays} onDaily={daily} onRead={newChat} onBreathe={()=>go('breathe')} onExplore={()=>go('learn')} onTopic={chooseTopic}/>}
         {view==='calendar'&&<Calendar sessions={sessions} practiceDays={practiceDays} notes={dayNotes} saveStatus={saveLabel} onNoteChange={(key,note)=>setDayNotes(previous=>({...previous,[key]:note}))} onOpenSession={session=>openSession(session)} onRead={newChat}/>}
@@ -316,7 +369,7 @@ export default function App() {
           {phase==='picking'&&<><CardDeck key={current.id} onShuffle={()=>{setDeck(drawCards(78));setSelected([]);}} onCountChange={count=>{setSelected([]);updateSession(current.id,session=>({...session,drawCount:count}));}} count={current.drawCount||3} deck={deck} selected={selected} onSelect={index=>setSelected(previous=>previous.includes(index)?previous.filter(value=>value!==index):previous.length<(current.drawCount||3)?[...previous,index]:previous)} onReveal={()=>reveal()} onAuto={()=>reveal(Array.from({length:current.drawCount||3},(_,i)=>i))}/><button className="text-button cancel-draw" onClick={cancelDraw}>{t('Keep chatting without a new draw')}</button></>}
           {generating&&streamed&&<article className="message message-assistant streaming-response"><span className="assistant-avatar"><Logo size={29}/></span><div className="message-body"><div className="message-author">Eva Tarot<span>{t('On-device AI')}</span></div><Paragraphs text={streamed}/></div></article>}
           {generating&&<div className="typing-indicator" role="status"><Logo size={28}/><span>{t(activeDraw.length?'Reflecting on your cards…':'Eva Tarot is thinking…')}</span><span className="typing-dots"><i/><i/><i/></span><button className="stop-reading" onClick={()=>replyControllers.current.get(current.id)?.abort()}><Square size={13}/>{t('Stop')}</button></div>}
-          {error&&<div className="error-panel" role="alert"><p>{error}</p><button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>void generate(current,activeDraw,current.messages.filter(message=>message.role==='user').at(-1)?.text||current.title)}><RefreshCw size={16}/>{t(ai.status==='ready'?'Try again':'Start private AI')}</button></div>}
+          {error&&<div className="error-panel" role="alert"><p>{error}</p><button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>void generate(current,activeDraw,latestQuestion(current))}><RefreshCw size={16}/>{t('Try again')}</button>{readerMode==='local'&&<button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>{pendingAI.current={session:current,drawn:activeDraw,question:latestQuestion(current)};chooseReader('online');}}>{t('Use Online AI')}</button>}</div>}
           {!generating&&!error&&data.isCurrentDataSaved&&current.messages.some(message=>message.mode)&&<div className="conversation-saved"><Check size={14}/>{t('Conversation saved automatically')}</div>}
         </div>}
         {view==='journal'&&<div className="library-content history-content screen-enter"><div className="page-intro"><span className="eyebrow">{t('YOUR STORY, KEPT HERE')}</span><h1>{t('All your conversations.')}</h1><p>{t('Every conversation is saved. Come back whenever you like.')}</p></div><div className="history-tools"><label className="history-search"><Search size={18}/><input aria-label={t('Search conversations')} placeholder={t('Search conversations')} value={search} onChange={event=>setSearch(event.target.value)}/></label><button className={savedOnly?'selected':''} aria-pressed={savedOnly} onClick={()=>setSavedOnly(value=>!value)}><Bookmark size={17}/>{t('Bookmarks')}</button></div><div className="journal-list">{shownSessions.map(session=><article className="journal-entry" key={session.id}><div className="journal-text"><span className="eyebrow">{formatDate(new Date(session.date),{year:'numeric',month:'short',day:'numeric'})} · {t(session.drawCount===10?'In-depth reading':session.drawCount===0?'Chat':'Tarot')}</span><h2>{session.title}</h2><button className="text-button history-edit" onClick={()=>setEditing({session,messageId:session.messages.find(message=>message.role==='user')?.id||''})}><Pencil size={16}/>{t('Edit reading')}</button><button className="text-button" onClick={()=>openSession(session)}>{t('Continue conversation')}<ArrowRight size={16}/></button><label className="note-label" htmlFor={`note-${session.id}`}>{t('A note to your future self')}</label><textarea id={`note-${session.id}`} value={session.note} maxLength={1200} placeholder={t('What stayed with you?')} onChange={event=>updateSession(session.id,value=>({...value,note:event.target.value}))}/></div><button className={`icon-button ${session.saved?'saved':''}`} aria-label={t(session.saved?'Remove from saved conversations':'Save conversation')} onClick={()=>updateSession(session.id,value=>({...value,saved:!value.saved}))}><Bookmark size={20} fill={session.saved?'currentColor':'none'}/></button></article>)}</div>{!shownSessions.length&&<div className="empty-state"><MessageCircle size={38}/><h2>{t(search?'No conversations found.':savedOnly?'No bookmarks yet.':'Your story starts here.')}</h2><button className="primary-button" onClick={newChat}>{t('Start a conversation')}<ArrowRight size={18}/></button></div>}<CloudAccount cloud={cloud}/></div>}
@@ -332,15 +385,17 @@ export default function App() {
           </div>
         </form>
         {voiceMessage&&<p className="voice-feedback" role="status">{voiceMessage}</p>}
-        <div className="composer-caption"><span>{t(ai.status==='ready'||ai.status==='generating'?'Private AI · messages stay on this device':'Private AI · setup needed')} · {saveLabel}</span></div>
+        <div className="composer-caption"><button type="button" disabled={loadingIds.size>0} onClick={()=>{pendingAI.current=null;setShowReaderOptions(true);}}>{t(readerMode==='online'?'Online AI · messages sent for replies':'On-device AI · messages stay here')}<ChevronRight size={12}/></button><span>{saveLabel}</span></div>
       </footer>}
       {view!=='chat'&&<nav className="bottom-nav" aria-label={t('App navigation')}>{navItems.map(item=><button key={item.view} className={view===item.view?'active':''} aria-current={view===item.view?'page':undefined} onClick={()=>go(item.view)}><item.icon size={23}/><span>{t(item.label)}</span></button>)}</nav>}
     </main>
-    {modal==='settings'&&<Modal title={t('Your personal space')} onClose={()=>setModal(null)}><div className="settings-content"><h2>{t('A space that feels like you.')}</h2><ProfilePhoto value={profile.avatar} onChange={avatar=>setProfile(previous=>({...previous,avatar}))} labels={{upload:t('Upload profile photo'),remove:t('Remove photo'),hint:t('JPG, PNG or WebP · up to 10 MB'),alt:t('Profile photo'),saving:t('Preparing your photo…'),invalid:t('Choose a JPG, PNG or WebP image.'),tooLarge:t('Please choose an image smaller than 10 MB.'),unreadable:t('This image could not be opened. Try another photo.')}}/><label className="field-label" htmlFor="profile-name">{t('What should we call you?')}</label><input id="profile-name" value={nameDraft} maxLength={32} onChange={event=>setNameDraft(event.target.value)}/><button className="primary-button" onClick={()=>{setProfile(previous=>({...previous,name:nameDraft.trim(),onboarded:true}));setToast(t('Your profile has been updated.'));}}>{t('Save my name')}<Check size={17}/></button><label className="field-label" htmlFor="app-language">{t('Language')}</label><SoftSelect id="app-language" aria-label={t('Language')} value={language} onChange={setLanguage} options={languages.map(item=>({value:item.code,label:item.label}))}/><p className="privacy-small">{t('English and Vietnamese are the primary languages. Some reference content may appear in English in other languages.')}</p><section className="settings-storage-note"><ShieldCheck size={19}/><div><h3>{t('Your saved data')}</h3><p>{saveLabel}</p></div></section><CloudAccount cloud={cloud}/><div className="settings-actions"><button className="secondary-button" onClick={()=>{setModal(null);pendingAI.current=null;setShowAI(true);void checkLocalAISupport();}}><ShieldCheck size={18}/>{t('Private AI settings')}</button><button className="secondary-button" onClick={exportData}><Download size={18}/>{t('Export all my data')}</button><button className="secondary-button" disabled={importing} onClick={()=>importRef.current?.click()}>{importing?<LoaderCircle className="spin" size={18}/>:<Upload size={18}/>} {t(importing?'Importing your backup…':'Import a backup')}</button><input className="visually-hidden" tabIndex={-1} aria-hidden="true" ref={importRef} type="file" accept="application/json,.json" onChange={event=>void importData(event.target.files?.[0])}/><button className="secondary-button" onClick={()=>void data.requestDurability().then(granted=>setToast(t(granted?'Persistent storage is enabled.':'Your data still saves here. Keep an exported backup too.')))}><Heart size={18}/>{t('Keep data on this device')}</button><button className="secondary-button" onClick={()=>void install()}><Plus size={18}/>{t('Add to home screen')}</button><button className="text-button" onClick={()=>{setModal(null);go('learn');}}><Compass size={18}/>{t('Explore all the cards')}</button></div><p className="privacy-small">{t('Your data is saved in this browser, not an online account. Export a backup to move it to another device or keep an extra copy.')}</p></div></Modal>}
-    {modal==='about'&&<Modal title={t('How Eva Tarot works')} onClose={()=>setModal(null)}><div className="about-content"><Logo size={57}/><h2>{t('Your intuition. A fresh perspective.')}</h2><p>{t('Start with your situation. Eva suggests a spread, then interprets the cards in the context of your conversation.')}</p><p>{t('Choose 1, 3, 5 or 10 cards from the complete 78-card deck. The illustrations are Rider–Waite–Smith, not Gilded Tarot.')}</p><p>{t('Your history and calendar keep your reflections together. Future dates hold intentions, not predictions.')}</p><div className="soft-note">{t('The AI runs on your device after a one-time model download. It can make mistakes. Readings offer perspectives, not proof about people or fixed predictions.')}</div><button className="primary-button" onClick={()=>{setModal(null);newChat();}}>{t('Start a conversation')}<ArrowRight size={17}/></button></div></Modal>}
+    {modal==='settings'&&<Modal title={t('Your personal space')} onClose={()=>setModal(null)}><div className="settings-content"><h2>{t('A space that feels like you.')}</h2><ProfilePhoto value={profile.avatar} onChange={avatar=>setProfile(previous=>({...previous,avatar}))} labels={{upload:t('Upload profile photo'),remove:t('Remove photo'),hint:t('JPG, PNG or WebP · up to 10 MB'),alt:t('Profile photo'),saving:t('Preparing your photo…'),invalid:t('Choose a JPG, PNG or WebP image.'),tooLarge:t('Please choose an image smaller than 10 MB.'),unreadable:t('This image could not be opened. Try another photo.')}}/><label className="field-label" htmlFor="profile-name">{t('What should we call you?')}</label><input id="profile-name" value={nameDraft} maxLength={32} onChange={event=>setNameDraft(event.target.value)}/><button className="primary-button" onClick={()=>{setProfile(previous=>({...previous,name:nameDraft.trim(),onboarded:true}));setToast(t('Your profile has been updated.'));}}>{t('Save my name')}<Check size={17}/></button><label className="field-label" htmlFor="app-language">{t('Language')}</label><SoftSelect id="app-language" aria-label={t('Language')} value={language} onChange={setLanguage} options={languages.map(item=>({value:item.code,label:item.label}))}/><p className="privacy-small">{t('English and Vietnamese are the primary languages. Some reference content may appear in English in other languages.')}</p><section className="settings-storage-note"><ShieldCheck size={19}/><div><h3>{t('Your saved data')}</h3><p>{saveLabel}</p></div></section><CloudAccount cloud={cloud}/><div className="settings-actions"><button className="secondary-button" onClick={()=>{setModal(null);pendingAI.current=null;setShowReaderOptions(true);}}><Settings2 size={18}/>{t('Reader options')}</button><button className="secondary-button" onClick={exportData}><Download size={18}/>{t('Export all my data')}</button><button className="secondary-button" disabled={importing} onClick={()=>importRef.current?.click()}>{importing?<LoaderCircle className="spin" size={18}/>:<Upload size={18}/>} {t(importing?'Importing your backup…':'Import a backup')}</button><input className="visually-hidden" tabIndex={-1} aria-hidden="true" ref={importRef} type="file" accept="application/json,.json" onChange={event=>void importData(event.target.files?.[0])}/><button className="secondary-button" onClick={()=>void data.requestDurability().then(granted=>setToast(t(granted?'Persistent storage is enabled.':'Your data still saves here. Keep an exported backup too.')))}><Heart size={18}/>{t('Keep data on this device')}</button><button className="secondary-button" onClick={()=>void install()}><Plus size={18}/>{t('Add to home screen')}</button><button className="text-button" onClick={()=>{setModal(null);go('learn');}}><Compass size={18}/>{t('Explore all the cards')}</button></div><p className="privacy-small">{t('Your data is saved in this browser, not an online account. Export a backup to move it to another device or keep an extra copy.')}</p></div></Modal>}
+    {modal==='about'&&<Modal title={t('How Eva Tarot works')} onClose={()=>setModal(null)}><div className="about-content"><Logo size={57}/><h2>{t('Your intuition. A fresh perspective.')}</h2><p>{t('Start with your situation. Eva suggests a spread, then interprets the cards in the context of your conversation.')}</p><p>{t('Choose 1, 3, 5 or 10 cards from the complete 78-card deck. The illustrations are Rider–Waite–Smith, not Gilded Tarot.')}</p><p>{t('Your history and calendar keep your reflections together. Future dates hold intentions, not predictions.')}</p><div className="soft-note">{t('Online AI works without a download and sends your conversation to Eva’s server and AI provider for replies. On-device AI is an optional experimental reader. AI can make mistakes; readings offer perspectives, not predictions.')}</div><button className="primary-button" onClick={()=>{setModal(null);newChat();}}>{t('Start a conversation')}<ArrowRight size={17}/></button></div></Modal>}
     {modal==='install'&&<Modal title={t('Add Eva Tarot to your home screen')} onClose={()=>setModal(null)}><div className="about-content"><Logo size={60}/><h2>{t('A little closer, whenever you need.')}</h2><div className="install-steps"><strong>{t('On iPhone or iPad')}</strong><p>{t('Open Eva Tarot in Safari, tap Share, then choose “Add to Home Screen.”')}</p><strong>{t('On Android or desktop')}</strong><p>{t('Open your browser menu and choose “Install app” or “Add to Home Screen.”')}</p></div></div></Modal>}
     {translatedDetail&&<Modal title={translatedDetail.name} onClose={()=>setDetail(null)} className="card-detail-modal"><div className="card-detail"><span className="eyebrow">{translatedDetail.id+1} / 78 · {t(translatedDetail.id<22?'Major Arcana':'Minor Arcana')}</span><h2>{translatedDetail.name}</h2><img className="detail-art" src={translatedDetail.image} alt={translatedDetail.name}/><div className="keyword-pills">{translatedDetail.keywords.map(keyword=><span key={keyword}>{t(keyword)}</span>)}</div><CardGuidance cardId={translatedDetail.id}/><blockquote>{translatedDetail.reflection}</blockquote><button className="secondary-button close-card-details" onClick={()=>setDetail(null)}>{t('Close card details')}</button></div></Modal>}
-    {showAI&&<LocalAISetup state={ai} preparing={preparingAI} startupError={aiStartupError} onEnable={()=>void enableAI()} onCancel={cancelReaderSetup} onClose={closeReaderSetup} onExplore={exploreFromSetup} onReference={pendingAI.current?.drawn.length?showReference:undefined}/>}
+    {showAI&&<LocalAISetup state={ai} preparing={preparingAI} startupError={aiStartupError} onEnable={()=>void enableAI()} onCancel={cancelReaderSetup} onClose={closeReaderSetup} onExplore={exploreFromSetup} onOnline={()=>chooseReader('online')} onReference={pendingAI.current?.drawn.length?showReference:undefined}/>}
+    {showReaderOptions&&<ReaderOptions mode={readerMode} onChoose={chooseReader} onClose={()=>setShowReaderOptions(false)}/>}
+    {showOnlineDisclosure&&<OnlineDisclosure onContinue={confirmOnline} onClose={closeOnlineDisclosure}/>}
     {modal==='language'&&<Modal title={t('Choose your language')} onClose={()=>setModal(null)}><div className="language-chooser"><Globe size={26}/><h2>{t('Choose your language')}</h2><p>{t('English and Vietnamese are fully supported. Other languages include translated core controls.')}</p><div className="language-options">{languages.map(item=><button key={item.code} lang={item.code} type="button" aria-pressed={language===item.code} onClick={()=>{setLanguage(item.code);setModal(null);}}><span>{item.label}</span>{language===item.code&&<Check size={18}/>}</button>)}</div></div></Modal>}
     {editing&&<EditReading session={editing.session} messageId={editing.messageId} onClose={()=>setEditing(null)} onSave={(title,note)=>{updateSession(editing.session.id,session=>({...session,title,note}));setEditing(null);setToast(t('Reading updated.'));}} onRevise={revise}/>}
     {toast&&<div className="toast" role="status"><Check size={18}/>{toast}<button onClick={()=>setToast('')} aria-label={t('Dismiss notification')}><X size={17}/></button></div>}

@@ -10,6 +10,9 @@ export type ReadingRequest = {
   cards: TarotCard[];
   history?: ReadingHistoryMessage[];
   language?: ReadingLanguage;
+  followUp?: boolean;
+  continuation?: boolean;
+  signal?: AbortSignal;
 };
 export type ReadingResult = { text: string; mode: 'ai' | 'demo' };
 
@@ -154,34 +157,75 @@ export function generateDemoReading({ question, focus, cards, history, language 
   ]);
 }
 
-function boundedHistory(history: ReadingHistoryMessage[] | undefined): ReadingHistoryMessage[] | undefined {
+const historyEncoder = new TextEncoder();
+const historyWireBytes = (value: string) => historyEncoder.encode(JSON.stringify(value).slice(1, -1)).length;
+
+function clipHistoryText(content: string, characterLimit: number, byteLimit: number, fromEnd = false): { text: string; bytes: number } {
+  const characters = Array.from(content);
+  if (fromEnd) characters.reverse();
+  const kept: string[] = [];
+  let length = 0;
+  let bytes = 0;
+  for (const character of characters) {
+    const size = historyWireBytes(character);
+    if (length + character.length > characterLimit || bytes + size > byteLimit) break;
+    kept.push(character);
+    length += character.length;
+    bytes += size;
+  }
+  if (fromEnd) kept.reverse();
+  return { text: kept.join(''), bytes };
+}
+
+function historyExcerpt(role: ReadingHistoryMessage['role'], content: string, byteLimit: number): { text: string; bytes: number } {
+  if (role !== 'assistant' || (content.length <= 3_500 && historyWireBytes(content) <= byteLimit)) {
+    return clipHistoryText(content, 3_500, byteLimit);
+  }
+  // Long readings need their ending for follow-ups and "continue" requests.
+  // Mark the missing middle explicitly rather than presenting joined text as a complete reply.
+  const marker = '\n\n[Middle of earlier reply omitted]\n\n';
+  const markerBytes = historyWireBytes(marker);
+  if (byteLimit <= markerBytes) return { text: '', bytes: 0 };
+  const bodyBudget = byteLimit - markerBytes;
+  const head = clipHistoryText(content, 1_400, Math.floor(bodyBudget * 0.4));
+  const tail = clipHistoryText(content, 3_500 - marker.length - head.text.length, bodyBudget - head.bytes, true);
+  return { text: head.text + marker + tail.text, bytes: head.bytes + markerBytes + tail.bytes };
+}
+
+export function boundedHistory(history: ReadingHistoryMessage[] | undefined, question?: string): ReadingHistoryMessage[] | undefined {
   if (!history) return undefined;
+  const previous = [...history];
+  if (previous.at(-1)?.role === 'user' && previous.at(-1)?.content.trim() === question?.trim()) previous.pop();
+  const firstUser = previous.findIndex(message => message.role === 'user');
+  const recentStart = Math.max(0, previous.length - 7);
+  const indices = [...new Set([...(firstUser >= 0 && firstUser < recentStart ? [firstUser] : []), ...previous.map((_, index) => index).slice(-7)])];
   // Preserve the most recent exchanges within both the per-message character
   // limit and the server's total UTF-8 byte limit, including translated text.
   let remainingBytes = 28_000;
-  const encoder = new TextEncoder();
-  return history.slice(-8).reverse().flatMap(({ role, content }) => {
-    let bounded = '';
-    let bytes = 0;
-    for (const character of content) {
-      // JSON escapes quotes, backslashes, and control characters, so budget
-      // the encoded payload rather than the displayed string alone.
-      const characterBytes = encoder.encode(JSON.stringify(character).slice(1, -1)).length;
-      if (bounded.length + character.length > 3_500 || bytes + characterBytes > remainingBytes) break;
-      bounded += character;
-      bytes += characterBytes;
-    }
-    remainingBytes -= bytes;
-    return bounded.trim() ? [{ role, content: bounded }] : [];
-  }).reverse();
+  const anchor = firstUser >= 0 && firstUser < recentStart ? firstUser : undefined;
+  const order = [...(anchor === undefined ? [] : [anchor]), ...indices.filter(index => index !== anchor).reverse()];
+  const excerpts = new Map<number, ReadingHistoryMessage>();
+  for (const index of order) {
+    const { role, content } = previous[index];
+    const limit = index === anchor ? Math.min(1_800, remainingBytes) : remainingBytes;
+    // Account for JSON escapes as well as UTF-8 characters in the wire budget.
+    const excerpt = historyExcerpt(role, content, limit);
+    remainingBytes -= excerpt.bytes;
+    if (excerpt.text.trim()) excerpts.set(index, { role, content: excerpt.text });
+  }
+  return indices.flatMap(index => excerpts.has(index) ? [excerpts.get(index)!] : []);
 }
 
 export async function getReading(input: ReadingRequest): Promise<ReadingResult> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 35_000);
-  let response: Response;
+  let timedOut = false;
+  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 82_000);
+  const stop = () => controller.abort();
+  input.signal?.addEventListener('abort', stop, { once: true });
+  if (input.signal?.aborted) controller.abort();
   try {
-    response = await fetch('/api/reading', {
+    if (controller.signal.aborted) throw new DOMException('Reply stopped.', 'AbortError');
+    const response = await fetch('/api/reading', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -189,33 +233,32 @@ export async function getReading(input: ReadingRequest): Promise<ReadingResult> 
         focus: input.focus,
         cardIds: input.cards.map((card) => card.id),
         language: input.language ?? 'en',
-        history: boundedHistory(input.history),
+        history: boundedHistory(input.history, input.question),
+        followUp: input.followUp ?? false,
+        continuation: input.continuation ?? /^(please\s+)?(continue|go on|carry on|tiep tuc|viet tiep|hay tiep tuc)[.!?…]*$/i.test(input.question.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')),
       }),
       signal: controller.signal,
     });
-  } catch (error) {
-    clearTimeout(timeout);
-    if (controller.signal.aborted) throw new Error('Your reading is taking longer than expected. Please try again in a moment.');
-    if (error instanceof TypeError) return { text: generateDemoReading(input), mode: 'demo' };
-    throw error;
-  }
-  try {
     const data: unknown = await response.json();
+    if (controller.signal.aborted) throw new DOMException('Reply stopped.', 'AbortError');
     if (!data || typeof data !== 'object') throw new Error('The reading service returned an unexpected response. Please try again.');
     const result = data as Record<string, unknown>;
     if (!response.ok) {
       throw new Error(typeof result.error === 'string' ? result.error : 'We could not finish your reading. Please try again in a moment.');
     }
-    if (result.mode === 'demo') return { text: generateDemoReading(input), mode: 'demo' };
+    if (result.mode === 'demo') throw new Error('Online AI is not available right now. Your question is kept here. Please try again later.');
     if (result.mode === 'ai' && typeof result.text === 'string' && result.text.trim()) {
       return { text: result.text, mode: 'ai' };
     }
     throw new Error('The reading service returned an incomplete response. Please try again.');
   } catch (error) {
-    if (controller.signal.aborted) throw new Error('Your reading is taking longer than expected. Please try again in a moment.');
+    if (timedOut) throw new Error('Your reading is taking longer than expected. Please try again in a moment.');
+    if (input.signal?.aborted) throw new DOMException('Reply stopped.', 'AbortError');
+    if (error instanceof TypeError) throw new Error('Online AI could not connect. Check your internet connection and try again. Your question is kept here.');
     if (error instanceof SyntaxError) throw new Error('The reading service is not available here yet. Please try again when it is running.');
     throw error;
   } finally {
     clearTimeout(timeout);
+    input.signal?.removeEventListener('abort', stop);
   }
 }

@@ -15,11 +15,12 @@ type LocalAISetupProps = {
   onClose: () => void;
   onReference?: () => void;
   onExplore?: () => void;
+  onOnline?: () => void;
 };
 
 const readerChoices = [...LOCAL_AI_MODELS].sort((left, right) => Number(right.key === 'light') - Number(left.key === 'light'));
 
-export function LocalAISetup({ state, preparing = false, startupError = '', onEnable, onCancel, onClose, onReference, onExplore }: LocalAISetupProps) {
+export function LocalAISetup({ state, preparing = false, startupError = '', onEnable, onCancel, onClose, onReference, onExplore, onOnline }: LocalAISetupProps) {
   const { t } = useLanguage();
   const [actionError, setActionError] = useState('');
   const checking = !state.removing && state.status === 'checking';
@@ -52,13 +53,13 @@ export function LocalAISetup({ state, preparing = false, startupError = '', onEn
         <h2>{t(heading)}</h2>
       </header>
       <div className="reader-setup-scroll">
-        <p className="reader-setup-intro">{t('Talk through your question with an AI that runs on your device.')}</p>
+        <p className="reader-setup-intro">{t('This experimental reader runs on your device. Online AI is recommended for phones and needs no download.')}</p>
         {!unsupported && <fieldset className="model-choices" disabled={busy}>
           <legend>{t('Choose your reader')}</legend>
           {readerChoices.map(model => <label key={model.key} className={`model-choice ${state.model === model.key ? 'selected' : ''}`}>
             <input type="radio" name="local-reader" value={model.key} checked={state.model === model.key} onChange={() => choose(model.key)} />
             <span className="model-choice-copy">
-              <strong>{t(model.name)}{model.key === 'light' && <em>{t('Recommended')}</em>}</strong>
+              <strong>{t(model.name)}</strong>
               <span>{t(model.key === 'light' ? '360 MB · a lighter choice for your device' : 'About 1 GB · more detail, more memory')}</span>
             </span>
           </label>)}
@@ -93,6 +94,7 @@ export function LocalAISetup({ state, preparing = false, startupError = '', onEn
         </details>
       </div>
       <footer className="reader-setup-actions">
+        {onOnline&&<button type="button" className={unsupported||state.status==='error'?'primary-button':'secondary-button'} disabled={state.status==='generating'} onClick={onOnline}>{t('Use Online AI · no download')}<ArrowRight size={18}/></button>}
         {unsupported ? onExplore && <button type="button" className="primary-button" onClick={onExplore} disabled={busy}><BookOpen size={18} />{t('Explore the card library')}</button>
           : <button type="button" className="primary-button" onClick={onEnable} disabled={busy}>
             {busy ? <LoaderCircle className="spin" size={18} /> : state.status === 'ready' ? <ArrowRight size={18} /> : <Download size={18} />}

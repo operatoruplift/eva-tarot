@@ -4,6 +4,18 @@ Upgrade date: 7 October 2026 (Asia/Ho_Chi_Minh).
 
 Last updated: 9 October 2026.
 
+## Online reader and reading-link recovery — 9 October 2026
+
+- Online AI is now the default. Opening the app or sending an online question does not download or initialize WebGPU. Experimental on-device AI remains an explicit reader option with an online escape action.
+- Hosted requests retain the original user context and recent conversation, with Unicode-safe opening/ending excerpts for long replies. Follow-up and continuation flags are validated. The server supplies canonical card meaning, strengths, challenges, advice and direction for all supported spread sizes; no provider/network error is replaced with preset text.
+- Online processing is disclosed before the first send and before sharing a private or unknown legacy conversation. Private intent is stored with the journal before GPU setup; it survives reload, import, revision and cross-tab merging. Explicit online approval is required to clear it. Tests cover crash-before-first-local-reply, switching an approved chat back to private, legacy revisions and future-dated imports.
+- Reading routes safely encode imported IDs, support hash and legacy path addresses, wait for hydration and display non-destructive missing-reading recovery. A React error boundary offers reload/home without clearing journal data. These measures avoid the default GPU workload and catch render failures; they do not prove that optional GPU inference cannot trigger a phone OS/browser termination.
+- All 171 automated tests passed on the final source. Code, TypeScript and security reviews approved the changes. TypeScript checking passed; final production-build results are recorded below when available. API tests use mocked providers; they are not evidence of live model access.
+- Local browser checks verified first-send disclosure, cancelling without losing the question, full-reload restoration, retry without GPU setup, a visible provider error with the question retained, missing-link recovery, and a legacy `/reading/<id>` path reopening the saved conversation. At 320 × 667 the optional-local setup's online escape action was 244 × 50px at y=512, inside the viewport; document width was 320px.
+- Fixed the development API proxy to preserve the frontend Host. Vite's string shorthand rewrote Host to the backend port, causing the unchanged same-origin check to reject valid local requests. The object proxy with `changeOrigin:false` preserves the check and the request reaches the real provider.
+- Vercel production/preview configuration now sets `HOSTED_AI_ENABLED=true` and `AI_GATEWAY_ENABLED=true`. The project WAF rate limit is published: 20 reading requests per 600 seconds per IP, with per-region counters. The existing $5 Gateway project budget without automatic refresh was retained.
+- **Live-provider blocker:** a real request using a fresh project OIDC token was rejected by Gateway with HTTP 403, type `customer_verification_required`, because a valid credit card is required. The user was asked to complete Gateway billing. The app surfaces a retryable unavailable message and preserves the conversation. No completed online reading or resolution of this account requirement is claimed yet.
+
 ## Public release usability and data integrity — 9 October 2026
 
 - All 143 automated tests passed. Independent code, TypeScript and security reviews approved their scopes. The final persistence review independently reran 37 storage/hook tests and TypeScript successfully.

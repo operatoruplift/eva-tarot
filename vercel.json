@@ -5,8 +5,18 @@
   "outputDirectory": "dist",
   "regions": ["sin1"],
   "functions": {
-    "api/*.mjs": {"maxDuration": 45, "includeFiles": "src/data/**"}
+    "api/*.mjs": {"maxDuration": 90, "includeFiles": "src/data/**"}
   },
+  "rewrites": [
+    {"source": "/reading", "destination": "/index.html"},
+    {"source": "/reading/:path*", "destination": "/index.html"},
+    {"source": "/chat", "destination": "/index.html"},
+    {"source": "/calendar", "destination": "/index.html"},
+    {"source": "/journal", "destination": "/index.html"},
+    {"source": "/breathe", "destination": "/index.html"},
+    {"source": "/cards", "destination": "/index.html"},
+    {"source": "/rituals", "destination": "/index.html"}
+  ],
   "headers": [
     {"source": "/(.*)", "headers": [{"key": "X-Content-Type-Options", "value": "nosniff"}, {"key": "Referrer-Policy", "value": "same-origin"}, {"key": "Permissions-Policy", "value": "camera=(), microphone=(self), geolocation=()"}, {"key": "Content-Security-Policy", "value": "frame-ancestors 'none'; object-src 'none'; base-uri 'self'"}, {"key": "X-Frame-Options", "value": "DENY"}]},
     {"source": "/sw.js", "headers": [{"key": "Cache-Control", "value": "no-cache"}]},

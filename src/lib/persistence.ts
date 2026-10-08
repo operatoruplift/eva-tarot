@@ -71,6 +71,9 @@ export function mergePersonalData(baseline: PersonalData, local: PersonalData, r
 }
 function mergeSession(original: Session | undefined, local: Session, remote: Session): Session {
   const merged = { ...remote };
+  // Only an explicit privacy choice may replace another tab's private intent.
+  // Older snapshots without this field must not erase the durable marker.
+  if(local.privateReader!==undefined&&(!original||local.privateReader!==original.privateReader))merged.privateReader=local.privateReader;
   for (const key of ['title', 'focus', 'date', 'saved', 'note', 'daily', 'drawCount', 'revisedFrom'] as const) {
     if (!original || !equal(original[key], local[key])) Object.assign(merged, { [key]: local[key] });
   }

@@ -1,6 +1,6 @@
 import type { TarotCard } from '../data/tarot';
 export type Message = {id:string; role:'user'|'assistant';text:string;cards?:TarotCard[];mode?:'demo'|'ai'|'local';createdAt?:string};
-export type Session = {id:string;title:string;focus:string;date:string;messages:Message[];saved:boolean;note:string;daily?:boolean;drawCount?:number;revisedFrom?:string};
+export type Session = {id:string;title:string;focus:string;date:string;messages:Message[];saved:boolean;note:string;daily?:boolean;drawCount?:number;revisedFrom?:string;privateReader?:boolean};
 export type Profile = {name:string;onboarded:boolean;avatar?:string};
 export type PersonalData = {profile:Profile;sessions:Session[];practiceDays:string[];dayNotes:Record<string,string>};
 export function readStorage<T>(key:string,fallback:T,validate:(value:unknown)=>boolean):T {
@@ -16,6 +16,7 @@ export function validSessions(value:unknown):value is Session[] {
   return value.every((s:Session)=>{
     if(!s||typeof s.id!=='string'||!s.id||ids.has(s.id)||typeof s.title!=='string'||typeof s.focus!=='string'||typeof s.date!=='string'||!Number.isFinite(Date.parse(s.date))||typeof s.saved!=='boolean'||typeof s.note!=='string'||!Array.isArray(s.messages)||(s.drawCount!==undefined&&![0,1,3,5,10].includes(s.drawCount)))return false;
     if(s.revisedFrom!==undefined&&(typeof s.revisedFrom!=='string'||s.revisedFrom.length>80))return false;
+    if(s.privateReader!==undefined&&typeof s.privateReader!=='boolean')return false;
     ids.add(s.id);const messages=new Set<string>();
     return s.messages.every(m=>{
       if(!m||typeof m.id!=='string'||!m.id||messages.has(m.id)||!['user','assistant'].includes(m.role)||typeof m.text!=='string'||(m.mode!==undefined&&!['demo','ai','local'].includes(m.mode))||(m.createdAt!==undefined&&!validTimestamp(m.createdAt)))return false;
