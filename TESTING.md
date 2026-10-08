@@ -13,9 +13,17 @@ Last updated: 9 October 2026.
 - Browser calendar checks saved a synthetic future intention, navigated to another month and reloaded. The note and its date marker remained. Selecting a past day listed its conversations, and selecting a record opened the original saved reading.
 - Light/Qwen3-0.6B produced a saved response to a synthetic painting question and its updated fifteen-minute constraint. It included Meaning, Good side, Difficult side, Advice and Clear direction, and mentioned using the fifteen minutes. The original question, update, card and answer remained after a full reload. Screenshot: `../eva-tarot-release-reading-reload.jpg`. Its wording still mixed first/second person and included generic encouragement; this is not evidence of ChatGPT-level quality.
 - The final local production build passed TypeScript and Vite compilation. The large lazy-loaded WebLLM runtime still produces Vite's bundle-size warning; it is not a build failure.
+- A follow-up was then tested against the frozen production build on the same local origin. Light completed a short plan using the fifteen-minute context, saved it and remained ready for another message. Development-server reloads during earlier source/document edits explain the previously observed reset; no idle unload occurred in this frozen-build check.
 - The hosted compatibility API is disabled unless `HOSTED_AI_ENABLED=true` is explicitly configured. Provider credentials alone do not activate it. Security review approved the opt-in gate and framing/object restrictions; its 35 focused tests passed. No paid AI request was made.
 - GitHub CI now runs the tests and production build on Node 24. Vercel deployment is explicit; automatic GitHub deployment has not been verified.
 - Browser checks use synthetic local data and desktop viewport emulation. Physical-device installation, microphone capture, cloud backup and successful inference on every device remain outside this verification.
+
+### Publication checks
+
+- Release commit `c2765e022a49f35682f38207f101b842019ca398` was pushed to [operatoruplift/eva-tarot](https://github.com/operatoruplift/eva-tarot). [GitHub CI run 37815555134](https://github.com/operatoruplift/eva-tarot/actions/runs/37815555134) passed install, all tests and the production build using Node 24.
+- Vercel deployment `dpl_Bb2PgsjXUASHCxBV2Aut2NKFX2pT` is READY at https://evatarot.vercel.app; the old https://evara-omega.vercel.app address serves the same release. Deployment build and alias promotion succeeded.
+- Unauthenticated HTTP checks returned 200 for home, manifest, service worker, all 78 card images, `/assets/index-CofUQsUQ.js`, `/assets/index-D2q09dQk.css` and both AI runtime bundles. `/api/health` reports `mode: disabled`. CSP framing/object restrictions and `X-Frame-Options: DENY` are present.
+- The original public tab was refreshed and showed the deployed chat-first home, lotus and Just chat default. At 390 × 844, document width was 390px. At 320 × 667 in Vietnamese, document width was 320px and the setup primary action was 244 × 50px at y=542, inside the viewport. Screenshots: `../eva-tarot-public-release-mobile.jpg` and `../eva-tarot-public-release-vietnamese.jpg`. The viewport and English language were restored; the public app was left open.
 
 ## Private reader save and recovery fix — 8 October 2026
 
