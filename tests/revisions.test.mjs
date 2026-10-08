@@ -23,3 +23,12 @@ test('revising a follow-up keeps earlier context; choosing new cards starts a cl
  assert.equal(redraw.drawCount,5);assert.equal(redraw.messages.length,1);assert.ok(validSessions([redraw]));
  assert.throws(()=>reviseConversation(source,'missing','x','',options));
 });
+test('editing an earlier question cannot inherit a later unrelated spread',()=>{
+ const multi={...source,messages:[...source.messages,{id:'c2',role:'assistant',text:'',cards:cards.slice(10,15)}]};
+ const early=reviseConversation(multi,'q','Changed original','',options);
+ assert.deepEqual(early.messages.find(m=>m.cards)?.cards,cards.slice(0,3));
+ const later=reviseConversation(multi,'f','Changed later question','',options);
+ assert.deepEqual(later.messages.filter(m=>m.cards).at(-1)?.cards,cards.slice(10,15));
+ assert.equal(later.drawCount,5);
+ assert.ok(validSessions([early,later].map((s,i)=>({...s,id:`revision-${i}`}))));
+});

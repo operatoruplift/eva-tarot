@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { normalizeDay, readStorage, validDayNotes, validPersonalData, validPracticeDays, validProfile, validSessions } from './storage.ts';
 import type { PersonalData, Profile, Session } from './storage.ts';
+import { mergeImportedData } from './import-merge.ts';
 
 const DATABASE = 'evara-personal-data';
 const STORE = 'snapshots';
@@ -9,12 +10,25 @@ const FALLBACK_KEY = 'evara-data-v2';
 const FALLBACK_BASELINE_KEY = 'evara-data-v2-baseline';
 const CHANGE_KEY = 'evara-data-changed';
 const EMPTY: PersonalData = { profile: { name: '', onboarded: false }, sessions: [], practiceDays: [], dayNotes: {} };
+export const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
 type Snapshot = { version: 2; revision: number; data: PersonalData };
-type Driver = { read: () => Promise<PersonalData | null>; write: (baseline: PersonalData, data: PersonalData) => Promise<PersonalData>; close: () => void };
+type Driver = { read: () => Promise<PersonalData | null>; write: (baseline: PersonalData, data: PersonalData, incoming?: PersonalData) => Promise<PersonalData>; close: () => void };
 type SaveWaiter = { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> };
+type PendingImport = { incoming: PersonalData; resolve: () => void; reject: (error: Error) => void };
 export type PersistenceStatus = 'loading' | 'saving' | 'saved' | 'error';
 const equal = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 const normalize = (data: PersonalData): PersonalData => ({ ...data, practiceDays: [...new Set(data.practiceDays.map(day => normalizeDay(day)!))] });
+
+class ImportMergeFailure extends Error {}
+
+function mergeWrite(baseline: PersonalData, local: PersonalData, remote: PersonalData | null, incoming?: PersonalData): PersonalData {
+  const current = remote ? mergePersonalData(baseline, local, remote) : local;
+  if (!incoming) return current;
+  // Import identity is kept separate from ordinary edits until the latest
+  // durable snapshot is read inside the write transaction.
+  try { return mergeImportedData(current, incoming); }
+  catch (failure) { throw new ImportMergeFailure(failure instanceof Error ? failure.message : 'The imported data is invalid.'); }
+}
 
 export function readLegacyData(): PersonalData {
   const combined = readStorage<PersonalData | null>(FALLBACK_KEY, null, validPersonalData);
@@ -92,25 +106,30 @@ async function openDriver(): Promise<Driver> {
       transaction.oncomplete = () => resolve(value);
       transaction.onabort = transaction.onerror = () => reject(transaction.error || new Error('Saved data could not be read.'));
     }),
-    write: (baseline, data) => new Promise((resolve, reject) => {
+    write: (baseline, data, incoming) => new Promise((resolve, reject) => {
+      if (!validPersonalData(data)) { reject(new Error('The browser could not save your data.')); return; }
       const transaction = database.transaction(STORE, 'readwrite');
       const store = transaction.objectStore(STORE);
       const request = store.get('main');
       let merged = data;
+      let failure: unknown;
       request.onsuccess = () => {
         const current = request.result as Snapshot | undefined;
         if (current && !validPersonalData(current.data)) { transaction.abort(); return; }
-        merged = current ? mergePersonalData(baseline, data, current.data) : data;
-        store.put({ version: 2, revision: (current?.revision ?? 0) + 1, data: merged } satisfies Snapshot, 'main');
+        try {
+          merged = mergeWrite(baseline, data, current?.data ?? null, incoming);
+          if (!validPersonalData(merged)) { transaction.abort(); return; }
+          store.put({ version: 2, revision: (current?.revision ?? 0) + 1, data: merged } satisfies Snapshot, 'main');
+        } catch (error) { failure = error; transaction.abort(); }
       };
       transaction.oncomplete = () => resolve(merged);
-      transaction.onabort = transaction.onerror = () => reject(transaction.error || new Error('The browser could not save your data.'));
+      transaction.onabort = transaction.onerror = () => reject(failure || transaction.error || new Error('The browser could not save your data.'));
     }),
     close: () => database.close(),
   };
 }
 function fallbackDriver(): Driver {
-  const read = async (): Promise<PersonalData | null> => {
+  const read = (): PersonalData | null => {
     const stored = localStorage.getItem(FALLBACK_KEY);
     if (stored === null) return null;
     const parsed: unknown = JSON.parse(stored);
@@ -118,10 +137,12 @@ function fallbackDriver(): Driver {
     return normalize(parsed);
   };
   return {
-    read,
-    write: async (baseline, data) => {
-      const current = await read();
-      const merged = current ? mergePersonalData(baseline, data, current) : data;
+    read: async () => read(),
+    write: async (baseline, data, incoming) => {
+      if (!validPersonalData(data)) throw new Error('The browser could not save your data.');
+      const current = read();
+      const merged = mergeWrite(baseline, data, current, incoming);
+      if (!validPersonalData(merged)) throw new Error('The browser could not save your data.');
       // Keep the baseline from when the outage began, not the latest fallback
       // snapshot, so recovery can distinguish offline edits from stale fields.
       if (!current) localStorage.setItem(FALLBACK_BASELINE_KEY, JSON.stringify(baseline));
@@ -155,7 +176,7 @@ export function createDataExport(data: PersonalData, language?: string): string 
   return JSON.stringify({ format: 'evara-personal-data', version: 2, exportedAt: new Date().toISOString(), ...data, ...(language ? { language } : {}) }, null, 2);
 }
 export function parseDataImport(text: string): PersonalData & { language?: string } {
-  if (new TextEncoder().encode(text).byteLength > 50 * 1024 * 1024) throw new Error('Choose an Eva Tarot backup smaller than 50 MB.');
+  if (new TextEncoder().encode(text).byteLength > MAX_BACKUP_BYTES) throw new Error('Choose an Eva Tarot backup smaller than 50 MB.');
   let raw: unknown;
   try { raw = JSON.parse(text); } catch { throw new Error('This file is not a readable Eva Tarot backup.'); }
   if (!raw || typeof raw !== 'object') throw new Error('This file is not an Eva Tarot backup.');
@@ -184,8 +205,9 @@ export function usePersistentData() {
   const recovering = useRef(false);
   const writeRevision = useRef(0);
   const saveWaiters = useRef(new Set<SaveWaiter>());
-  const persistenceState = useRef({ status, error, needsRecovery });
-  persistenceState.current = { status, error, needsRecovery };
+  const pendingImports = useRef<PendingImport[]>([]);
+  const persistenceState = useRef({ ready, status, error, needsRecovery });
+  persistenceState.current = { ready, status, error, needsRecovery };
   const settleWaiters = useCallback((failure?: Error) => {
     for (const waiter of saveWaiters.current) {
       clearTimeout(waiter.timer);
@@ -230,13 +252,16 @@ export function usePersistentData() {
     return () => {
       cancelled = true; mounted.current = false;
       settleWaiters(new Error('The app closed before your latest changes could be saved.'));
+      for (const pending of pendingImports.current) pending.reject(new Error('The app closed before your latest changes could be saved.'));
+      pendingImports.current = [];
       driver.current?.close(); driver.current = null; writing.current = false;
     };
   }, [settleWaiters]);
 
   useEffect(() => {
     if (!ready || !driver.current || writing.current) return;
-    if (JSON.stringify(data) === saved.current) { setStatus('saved'); setError(''); return; }
+    const pendingImport = pendingImports.current[0];
+    if (!pendingImport && JSON.stringify(data) === saved.current) { setStatus('saved'); setError(''); return; }
     // Start the IDB transaction immediately; debouncing risks losing the final
     // message when the user closes the app just after sending it.
     const desired = data;
@@ -244,15 +269,32 @@ export function usePersistentData() {
     writeRevision.current += 1;
     writing.current = true; setStatus('saving'); setError('');
     let succeeded = false;
-    void connection.write(baseline.current, desired).then(committed => {
+    void connection.write(baseline.current, desired, pendingImport?.incoming).then(committed => {
       if (!mounted.current || driver.current !== connection) return;
+      if (pendingImport) pendingImports.current = pendingImports.current.filter(item => item !== pendingImport);
       baseline.current = committed; saved.current = JSON.stringify(committed);
       setData(current => equal(current, desired) ? committed : mergePersonalData(desired, current, committed));
       setStatus(equal(latest.current, desired) ? 'saved' : 'saving');
       succeeded = true;
+      pendingImport?.resolve();
       try { localStorage.setItem(CHANGE_KEY, `${Date.now()}-${Math.random()}`); } catch { /* IndexedDB already committed. */ }
-    }).catch(() => {
-      if (mounted.current && driver.current === connection) { setStatus('error'); setError('Your latest changes could not be saved. Keep this tab open, export a backup, and free some device storage before retrying.'); }
+    }).catch(failure => {
+      if (!mounted.current || driver.current !== connection) return;
+      if (pendingImport) {
+        pendingImports.current = pendingImports.current.filter(item => item !== pendingImport);
+        pendingImport.reject(failure instanceof Error ? failure : new Error('The browser could not save your data.'));
+      }
+      if (failure instanceof ImportMergeFailure) {
+        // A rejected backup has not changed local state or durable data. Keep
+        // any ordinary edits queued and allow them to save independently.
+        setStatus(JSON.stringify(latest.current) === saved.current ? 'saved' : 'saving');
+        setError(''); succeeded = true;
+      } else {
+        const message = 'Your latest changes could not be saved. Keep this tab open, export a backup, and free some device storage before retrying.';
+        for (const pending of pendingImports.current) pending.reject(new Error(message));
+        pendingImports.current = [];
+        setStatus('error'); setError(message);
+      }
     }).finally(() => {
       if (!mounted.current || driver.current !== connection) return;
       writing.current = false;
@@ -281,9 +323,14 @@ export function usePersistentData() {
   const setSessions: Dispatch<SetStateAction<Session[]>> = useCallback(value => setData(current => ({ ...current, sessions: typeof value === 'function' ? value(current.sessions) : value })), []);
   const setPracticeDays: Dispatch<SetStateAction<string[]>> = useCallback(value => setData(current => ({ ...current, practiceDays: typeof value === 'function' ? value(current.practiceDays) : value })), []);
   const setDayNotes: Dispatch<SetStateAction<Record<string, string>>> = useCallback(value => setData(current => ({ ...current, dayNotes: typeof value === 'function' ? value(current.dayNotes) : value })), []);
-  const restoreData = useCallback((incoming: PersonalData) => {
-    if (!validPersonalData(incoming)) throw new Error('The imported data is invalid.');
-    setData(current => mergePersonalData(EMPTY, normalize(incoming), current));
+  const restoreData = useCallback((incoming: PersonalData): Promise<void> => {
+    if (!mounted.current) return Promise.reject(new Error('The app closed before your latest changes could be saved.'));
+    if (!validPersonalData(incoming)) return Promise.reject(new Error('The imported data is invalid.'));
+    if (!persistenceState.current.ready || !driver.current || persistenceState.current.needsRecovery) return Promise.reject(new Error('Your saved data could not be opened. Keep this tab open and export a copy before reloading.'));
+    return new Promise((resolve, reject) => {
+      pendingImports.current.push({ incoming: normalize(incoming), resolve, reject });
+      setAttempt(value => value + 1);
+    });
   }, []);
   const retrySave = useCallback(() => {
     if (!mounted.current || recovering.current) return;
@@ -327,7 +374,7 @@ export function usePersistentData() {
   }, []);
   const requestDurability = useCallback(async () => { try { return await navigator.storage?.persist?.() ?? false; } catch { return false; } }, []);
   const serialized = useMemo(() => JSON.stringify(data), [data]);
-  const isCurrentDataSaved = ready && !needsRecovery && !!driver.current && !writing.current && status === 'saved' && saved.current === serialized;
+  const isCurrentDataSaved = ready && !needsRecovery && !!driver.current && !writing.current && !pendingImports.current.length && status === 'saved' && saved.current === serialized;
   useEffect(() => {
     if (!saveWaiters.current.size || writing.current) return;
     if (status === 'error' || needsRecovery) settleWaiters(new Error(error || 'Your latest changes could not be saved.'));

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createElement } from 'react';
+import { createElement, StrictMode } from 'react';
 import { act, create } from 'react-test-renderer';
 import { IDBDatabase, IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 import { createDataExport, parseDataImport, usePersistentData } from '../src/lib/persistence.ts';
@@ -35,7 +35,7 @@ async function snapshot(factory, value) {
   } finally { database.close(); }
 }
 
-async function harness(t, { factory = new IDBFactory(), initial = journal(), values = new Map() } = {}) {
+async function harness(t, { factory = new IDBFactory(), initial = journal(), values = new Map(), strict = false } = {}) {
   const original = { indexedDB: globalThis.indexedDB, localStorage: globalThis.localStorage, window: globalThis.window, actEnvironment: globalThis.IS_REACT_ACT_ENVIRONMENT };
   if (factory && initial) await snapshot(factory, initial);
   globalThis.indexedDB = factory;
@@ -49,7 +49,7 @@ async function harness(t, { factory = new IDBFactory(), initial = journal(), val
   let current;
   let root;
   function Probe() { current = usePersistentData(); return null; }
-  const mount = async () => { await act(async () => { root = create(createElement(Probe)); }); };
+  const mount = async () => { await act(async () => { root = create(strict ? createElement(StrictMode, null, createElement(Probe)) : createElement(Probe)); }); };
   const unmount = async () => { if (root) { await act(async () => root.unmount()); root = undefined; } };
   t.after(async () => {
     await unmount();
@@ -252,4 +252,195 @@ test('localStorage fallback commits when IndexedDB is absent, but invalid fallba
   await app.mount(); await until(() => app.current.needsRecovery);
   await assert.rejects(app.current.flush(), /could not be opened/);
   assert.equal(app.values.get('evara-data-v2'), '{not valid');
+});
+
+test('restore waits for queued edits, preserves the current reading, and deduplicates repeated imports in StrictMode', async t => {
+  const initial = journal([chat('shared', 'Current note')]);
+  const imported = journal([chat('shared', 'Older note'), chat('backup-only')]);
+  const app = await harness(t, { initial, strict: true });
+  await app.mount(); await until(() => app.current.isCurrentDataSaved);
+  let restored;
+  await act(async () => {
+    app.current.setSessions(existing => existing.map(item => ({ ...item, note: 'Queued edit before import' })));
+    restored = observe(app.current.restoreData(imported));
+  });
+  await until(() => restored.settled);
+  assert.equal(restored.error, undefined);
+  await until(() => app.current.isCurrentDataSaved);
+  const first = await snapshot(app.factory);
+  assert.equal(first.sessions.find(item => item.id === 'shared').note, 'Queued edit before import');
+  assert.equal(first.sessions.length, 3);
+  assert.equal(first.sessions.find(item => item.id.startsWith('import-')).note, 'Older note');
+  await act(async () => { restored = observe(app.current.restoreData(imported)); });
+  await until(() => restored.settled && app.current.isCurrentDataSaved);
+  assert.equal(restored.error, undefined);
+  assert.deepEqual(await snapshot(app.factory), first);
+});
+
+test('an import that would overfill a calendar note rejects without applying any profile, conversation, or note changes', async t => {
+  const initial = { ...journal([chat('current')]), dayNotes: { '2026-10-08': 'a'.repeat(20_000) } };
+  const app = await harness(t, { initial });
+  await app.mount(); await until(() => app.current.isCurrentDataSaved);
+  let restored;
+  await act(async () => {
+    restored = observe(app.current.restoreData({ ...journal([chat('incoming')]), profile: { name: 'Backup name', onboarded: true }, dayNotes: { '2026-10-08': 'Older content' } }));
+  });
+  await until(() => restored.settled);
+  assert.match(restored.error.message, /Nothing was imported/);
+  assert.equal(app.current.isCurrentDataSaved, true);
+  assert.deepEqual(await snapshot(app.factory), initial);
+  assert.deepEqual(app.current.sessions, initial.sessions);
+  assert.deepEqual(app.current.dayNotes, initial.dayNotes);
+  await app.unmount();
+  await assert.rejects(app.current.restoreData(journal([chat('after-close')])), /app closed before/);
+});
+
+test('unmount settles an import whose React update has not been committed', async t => {
+  const app = await harness(t);
+  await app.mount(); await until(() => app.current.isCurrentDataSaved);
+  let restored;
+  await act(async () => {
+    app.current.setProfile({ name: 'Pending edit', onboarded: true });
+    restored = observe(app.current.restoreData(journal([chat('pending-import')])));
+    await app.unmount();
+  });
+  await restored.promise;
+  assert.equal(restored.settled, true);
+  assert.match(restored.error.message, /app closed before/);
+});
+
+test('invalid outgoing calendar data is never committed to IndexedDB and valid edits can recover saving', async t => {
+  const initial = { ...journal([chat('safe')]), dayNotes: { '2026-10-08': 'Keep this note' } };
+  const app = await harness(t, { initial });
+  await app.mount(); await until(() => app.current.isCurrentDataSaved);
+  let flush;
+  await act(async () => {
+    app.current.setDayNotes({ ...initial.dayNotes, '2026-02-30': 'Invalid day' });
+    flush = observe(app.current.flush());
+  });
+  await until(() => flush.settled);
+  assert.match(flush.error.message, /could not be saved/);
+  assert.equal(app.current.isCurrentDataSaved, false);
+  assert.deepEqual(await snapshot(app.factory), initial);
+  await act(async () => app.current.setDayNotes({ '2026-10-08': 'A valid new edit' }));
+  await until(() => app.current.isCurrentDataSaved);
+  assert.equal((await snapshot(app.factory)).dayNotes['2026-10-08'], 'A valid new edit');
+});
+
+test('invalid outgoing data cannot poison localStorage fallback or its recovery baseline', async t => {
+  const initial = journal([chat('safe-fallback')]);
+  const app = await harness(t, { initial: null, values: new Map([['evara-data-v2', JSON.stringify(initial)]]) });
+  globalThis.indexedDB = undefined;
+  await app.mount(); await until(() => app.current.isCurrentDataSaved);
+  const before = new Map(app.values);
+  let flush;
+  await act(async () => {
+    app.current.setDayNotes({ '2026-10-08': 'a'.repeat(20_001) });
+    flush = observe(app.current.flush());
+  });
+  await until(() => flush.settled);
+  assert.match(flush.error.message, /could not be saved/);
+  assert.deepEqual(app.values, before);
+  await app.unmount(); await app.mount(); await until(() => app.current.isCurrentDataSaved);
+  assert.equal(app.current.sessions[0].id, 'safe-fallback');
+  assert.deepEqual(app.current.dayNotes, {});
+});
+
+test('an import reconciles with newer durable conversations, profile, and calendar notes inside its transaction', async t => {
+  const initial = { ...journal(), profile: { name: '', onboarded: false }, dayNotes: { '2026-10-08': 'Baseline note' } };
+  const app = await harness(t, { initial });
+  await app.mount(); await until(() => app.current.isCurrentDataSaved);
+  const remote = {
+    ...journal([chat('shared', 'Newer reading from another tab')]),
+    profile: { name: 'Newer profile', onboarded: true, avatar: 'data:image/jpeg;base64,bmV3' },
+    dayNotes: { '2026-10-08': 'Newer note from another tab' },
+  };
+  await snapshot(app.factory, remote);
+  const incoming = {
+    ...journal([chat('shared', 'Older backup reading'), { ...chat('revision'), revisedFrom: 'shared' }]),
+    profile: { name: 'Old backup profile', onboarded: true, avatar: 'data:image/jpeg;base64,b2xk' },
+    dayNotes: { '2026-10-08': 'Older backup note' },
+  };
+  let restored;
+  await act(async () => { restored = observe(app.current.restoreData(incoming)); });
+  await until(() => restored.settled && app.current.isCurrentDataSaved);
+  assert.equal(restored.error, undefined);
+  const committed = await snapshot(app.factory);
+  assert.deepEqual(committed.profile, remote.profile);
+  assert.deepEqual(committed.sessions.find(item => item.id === 'shared'), remote.sessions[0]);
+  const copy = committed.sessions.find(item => item.note === 'Older backup reading');
+  assert.notEqual(copy.id, 'shared');
+  assert.equal(committed.sessions.find(item => item.id === 'revision').revisedFrom, copy.id);
+  assert.equal(committed.dayNotes['2026-10-08'], 'Newer note from another tab\n\n— Imported note —\n\nOlder backup note');
+  await act(async () => { restored = observe(app.current.restoreData(incoming)); });
+  await until(() => restored.settled && app.current.isCurrentDataSaved);
+  assert.deepEqual(await snapshot(app.factory), committed);
+});
+
+test('an import queued during a normal write preserves subsequent local edits and waits for its own commit', async t => {
+  const app = await harness(t, { initial: journal([chat('local', 'Original note')]) });
+  await app.mount(); await until(() => app.current.isCurrentDataSaved);
+  const completions = holdWriteCompletions(t);
+  await act(async () => app.current.setSessions([chat('local', 'First edit')]));
+  await until(() => completions.length === 1);
+  let restored;
+  await act(async () => {
+    restored = observe(app.current.restoreData(journal([chat('imported', 'From backup')])));
+    app.current.setSessions([chat('local', 'Latest local edit')]);
+  });
+  assert.equal(restored.settled, false);
+  await act(async () => completions.shift()());
+  await until(() => completions.length === 1);
+  assert.equal(restored.settled, false);
+  await act(async () => app.current.setProfile({ name: 'Edited during import', onboarded: true }));
+  await act(async () => completions.shift()());
+  await until(() => restored.settled);
+  assert.equal(restored.error, undefined);
+  await until(() => completions.length === 1);
+  await act(async () => completions.shift()());
+  await until(() => app.current.isCurrentDataSaved);
+  const committed = await snapshot(app.factory);
+  assert.equal(committed.sessions.find(item => item.id === 'local').note, 'Latest local edit');
+  assert.equal(committed.sessions.find(item => item.id === 'imported').note, 'From backup');
+  assert.equal(committed.profile.name, 'Edited during import');
+});
+
+test('a conflict with a newer durable calendar note rejects the import atomically and leaves queued local edits saveable', async t => {
+  const app = await harness(t, { initial: journal([chat('local', 'Before')]) });
+  await app.mount(); await until(() => app.current.isCurrentDataSaved);
+  const remote = { ...journal([chat('local', 'Before')]), dayNotes: { '2026-10-08': 'r'.repeat(20_000) } };
+  await snapshot(app.factory, remote);
+  let restored;
+  await act(async () => {
+    app.current.setSessions([chat('local', 'My pending edit')]);
+    restored = observe(app.current.restoreData({ ...journal([chat('backup-only')]), dayNotes: { '2026-10-08': 'Backup note' } }));
+  });
+  await until(() => restored.settled);
+  assert.match(restored.error.message, /Nothing was imported/);
+  await until(() => app.current.isCurrentDataSaved);
+  const committed = await snapshot(app.factory);
+  assert.equal(committed.sessions.length, 1);
+  assert.equal(committed.sessions[0].note, 'My pending edit');
+  assert.equal(committed.dayNotes['2026-10-08'], remote.dayNotes['2026-10-08']);
+  assert.equal(app.current.status, 'saved');
+});
+
+test('localStorage fallback imports merge against its latest stored snapshot, not the stale tab baseline', async t => {
+  const initial = { ...journal(), profile: { name: '', onboarded: false } };
+  const app = await harness(t, { initial: null, values: new Map([['evara-data-v2', JSON.stringify(initial)]]) });
+  globalThis.indexedDB = undefined;
+  await app.mount(); await until(() => app.current.isCurrentDataSaved);
+  const remote = { ...journal([chat('shared', 'New durable reading')]), profile: { name: 'Latest name', onboarded: true }, dayNotes: { '2026-10-08': 'Current note' } };
+  app.values.set('evara-data-v2', JSON.stringify(remote));
+  let restored;
+  await act(async () => {
+    restored = observe(app.current.restoreData({ ...journal([chat('shared', 'Old backup reading')]), dayNotes: { '2026-10-08': 'Old backup note' } }));
+  });
+  await until(() => restored.settled && app.current.isCurrentDataSaved);
+  assert.equal(restored.error, undefined);
+  const committed = JSON.parse(app.values.get('evara-data-v2'));
+  assert.equal(committed.profile.name, 'Latest name');
+  assert.equal(committed.sessions.find(item => item.id === 'shared').note, 'New durable reading');
+  assert.equal(committed.sessions.find(item => item.id.startsWith('import-')).note, 'Old backup reading');
+  assert.equal(committed.dayNotes['2026-10-08'], 'Current note\n\n— Imported note —\n\nOld backup note');
 });

@@ -1,5 +1,31 @@
 import type { Session } from './storage';
 
+export const CALENDAR_MIN_YEAR = 1900;
+export const CALENDAR_MAX_YEAR = 9999;
+
+export function isCalendarDateSupported(date: Date): boolean {
+  return Number.isFinite(date.getTime()) && date.getFullYear() >= CALENDAR_MIN_YEAR && date.getFullYear() <= CALENDAR_MAX_YEAR;
+}
+
+/** Keep navigation inside the same range accepted by stored calendar notes. */
+export function shiftCalendarMonth(month: Date, direction: -1 | 1): Date {
+  const next = new Date(month.getFullYear(), month.getMonth() + direction, 1);
+  if (next.getFullYear() < CALENDAR_MIN_YEAR) return new Date(CALENDAR_MIN_YEAR, 0, 1);
+  if (next.getFullYear() > CALENDAR_MAX_YEAR) return new Date(CALENDAR_MAX_YEAR, 11, 1);
+  return next;
+}
+
+/** Six full Monday-first weeks; callers disable any dates beyond the supported range. */
+export function getCalendarDays(month: Date): Date[] {
+  const start = new Date(month.getFullYear(), month.getMonth(), 1);
+  start.setDate(start.getDate() - (start.getDay() + 6) % 7);
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return day;
+  });
+}
+
 /** Local dates deliberately avoid UTC conversion, which can move a record to another day. */
 export function dateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { createRequestHandler } from '../server/index.mjs';
 
 const reading = { question: 'What can help me move forward thoughtfully?', focus: 'Personal growth', cardIds: [1, 8, 17] };
@@ -7,7 +8,7 @@ const gatewayResult = { choices: [{ finish_reason: 'stop', message: { role: 'ass
 
 function handler(options = {}) {
   return createRequestHandler({
-    apiKey: '', gatewayApiKey: '', isVercel: false,
+    hostedAIEnabled: true, apiKey: '', gatewayApiKey: '', isVercel: false,
     fetchImpl: async () => { throw new Error('Unexpected network request in test'); },
     ...options,
   });
@@ -29,6 +30,50 @@ async function invoke(handle, overrides = {}) {
   await handle(request, response);
   return { status: response.statusCode, headers: response.headers, body: JSON.parse(response.rawBody) };
 }
+
+test('provider credentials and OIDC never activate hosted AI without explicit opt-in', async () => {
+  const previous = process.env.HOSTED_AI_ENABLED;
+  let upstreamCalls = 0;
+  let tokenCalls = 0;
+  try {
+    for (const flag of [undefined, '', 'false', 'TRUE', '1']) {
+      if (flag === undefined) delete process.env.HOSTED_AI_ENABLED;
+      else process.env.HOSTED_AI_ENABLED = flag;
+      for (const credentials of [{ apiKey: 'test-openai' }, { gatewayApiKey: 'test-gateway' }, {}]) {
+        const handle = createRequestHandler({
+          apiKey: '', gatewayApiKey: '', ...credentials,
+          oidcTokenProvider: async () => { tokenCalls += 1; return 'test-token'; },
+          fetchImpl: async () => { upstreamCalls += 1; return Response.json(gatewayResult); },
+        });
+        const readingResult = await invoke(handle);
+        assert.equal(readingResult.status, 503);
+        assert.match(readingResult.body.error, /Hosted readings are not enabled/);
+        assert.deepEqual((await invoke(handle, { url: '/api/health', method: 'GET' })).body, { mode: 'disabled' });
+      }
+    }
+    assert.equal(tokenCalls, 0);
+    assert.equal(upstreamCalls, 0);
+    process.env.HOSTED_AI_ENABLED = 'true';
+    const enabled = createRequestHandler({ apiKey: '', gatewayApiKey: 'test-key', fetchImpl: async () => {
+      upstreamCalls += 1;
+      return Response.json(gatewayResult);
+    } });
+    assert.equal((await invoke(enabled)).status, 200);
+    assert.equal(upstreamCalls, 1);
+  } finally {
+    if (previous === undefined) delete process.env.HOSTED_AI_ENABLED;
+    else process.env.HOSTED_AI_ENABLED = previous;
+  }
+});
+
+test('Vercel and local responses apply the same framing and embedded-content protection', async () => {
+  const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
+  const headers = config.headers.find((rule) => rule.source === '/(.*)').headers;
+  const response = await invoke(handler({ hostedAIEnabled: false }));
+  for (const { key, value } of headers) assert.equal(response.headers[key.toLowerCase()], value);
+  assert.equal(response.headers['content-security-policy'], "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
+  assert.equal(response.headers['x-frame-options'], 'DENY');
+});
 
 test('serverless handler accepts Vercel parsed JSON without attempting to reread the stream', async () => {
   const result = await invoke(handler());
@@ -196,20 +241,20 @@ test('serverless requests preserve same-origin protection', async () => {
 });
 
 test('thin Vercel entrypoints export callable handlers without listening or requiring local credentials', async () => {
-  const keys = ['OPENAI_API_KEY', 'AI_GATEWAY_API_KEY', 'AI_GATEWAY_ENABLED', 'VERCEL'];
+  const keys = ['HOSTED_AI_ENABLED', 'OPENAI_API_KEY', 'AI_GATEWAY_API_KEY', 'AI_GATEWAY_ENABLED', 'VERCEL'];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   try {
     for (const key of keys) delete process.env[key];
     const { default: readingHandler } = await import('../api/reading.mjs?local-test');
     const { default: healthHandler } = await import('../api/health.mjs?local-test');
-    assert.deepEqual((await invoke(readingHandler)).body, { mode: 'demo' });
-    assert.deepEqual((await invoke(healthHandler, { method: 'GET' })).body, { mode: 'demo' });
+    assert.equal((await invoke(readingHandler)).status, 503);
+    assert.deepEqual((await invoke(healthHandler, { method: 'GET' })).body, { mode: 'disabled' });
     process.env.VERCEL = '1';
     process.env.AI_GATEWAY_ENABLED = 'false';
     const { default: deployedReading } = await import('../api/reading.mjs?deployed-no-gateway-test');
     const { default: deployedHealth } = await import('../api/health.mjs?deployed-no-gateway-test');
-    assert.deepEqual((await invoke(deployedReading)).body, { mode: 'demo' });
-    assert.deepEqual((await invoke(deployedHealth, { method: 'GET' })).body, { mode: 'demo' });
+    assert.equal((await invoke(deployedReading)).status, 503);
+    assert.deepEqual((await invoke(deployedHealth, { method: 'GET' })).body, { mode: 'disabled' });
   } finally {
     for (const key of keys) {
       if (previous[key] === undefined) delete process.env[key];

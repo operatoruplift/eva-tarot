@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dateKey, normalizeDayKey, getCalendarRecords } from '../src/lib/calendar.ts';
+import { dateKey, normalizeDayKey, getCalendarRecords, getCalendarDays, isCalendarDateSupported, shiftCalendarMonth } from '../src/lib/calendar.ts';
 import { vi } from '../src/lib/locales/vi.ts';
 import { additionalLocales } from '../src/lib/locales/additional.ts';
 import { tarotVi } from '../src/data/tarot-vi.ts';
@@ -14,6 +14,30 @@ test('calendar date keys use the local day and migrate legacy unpadded keys', ()
   assert.equal(normalizeDayKey('2024-2-29'), '2024-02-29');
   assert.equal(normalizeDayKey('2026-2-29'), '');
   assert.equal(normalizeDayKey('2026-13-1'), '');
+});
+
+test('month navigation stops at supported bounds and still crosses ordinary year boundaries', () => {
+  assert.equal(dateKey(shiftCalendarMonth(new Date(1900, 0, 1), -1)), '1900-01-01');
+  assert.equal(dateKey(shiftCalendarMonth(new Date(9999, 11, 1), 1)), '9999-12-01');
+  assert.equal(dateKey(shiftCalendarMonth(new Date(1900, 0, 1), 1)), '1900-02-01');
+  assert.equal(dateKey(shiftCalendarMonth(new Date(9999, 11, 1), -1)), '9999-11-01');
+  assert.equal(dateKey(shiftCalendarMonth(new Date(2026, 11, 1), 1)), '2027-01-01');
+  assert.equal(dateKey(shiftCalendarMonth(new Date(2026, 0, 1), -1)), '2025-12-01');
+});
+
+test('calendar grids retain full weeks but make out-of-range trailing dates unselectable', () => {
+  const lastMonth = getCalendarDays(new Date(9999, 11, 1));
+  assert.equal(lastMonth.length, 42);
+  assert.equal(lastMonth[0].getDay(), 1);
+  assert.ok(lastMonth.some(day => day.getFullYear() === 10000));
+  const selectable = lastMonth.filter(isCalendarDateSupported);
+  assert.equal(dateKey(selectable.at(-1)), '9999-12-31');
+  assert.ok(selectable.every(day => day.getFullYear() === 9999));
+  assert.equal(isCalendarDateSupported(new Date(1899, 11, 31)), false);
+  assert.equal(isCalendarDateSupported(new Date(1900, 0, 1)), true);
+  assert.equal(isCalendarDateSupported(new Date(10000, 0, 1)), false);
+  assert.equal(isCalendarDateSupported(new Date('invalid')), false);
+  assert.equal(dateKey(getCalendarDays(new Date(1900, 0, 1))[0]), '1900-01-01');
 });
 
 test('a continued conversation appears once on each activity day with its latest time', () => {

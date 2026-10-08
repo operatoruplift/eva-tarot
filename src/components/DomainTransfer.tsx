@@ -10,7 +10,7 @@ type Imported=ReturnType<typeof parseDataImport>;
 
 /** A user-initiated handoff between our two exact origins. No journal text is
  * placed in a URL or sent to a server. The old browser copy is retained. */
-export function DomainTransfer({data,language,saved,onImport}:{data:PersonalData;language:string;saved:boolean;onImport:(data:Imported)=>void}) {
+export function DomainTransfer({data,language,saved,onImport}:{data:PersonalData;language:string;saved:boolean;onImport:(data:Imported)=>Promise<void>}) {
   const {t}=useLanguage();const [status,setStatus]=useState('');
   const [pendingAck,setPendingAck]=useState<{opener:Window;nonce:string}|null>(null);
   const latest=useRef({data,language,onImport});latest.current={data,language,onImport};
@@ -18,15 +18,15 @@ export function DomainTransfer({data,language,saved,onImport}:{data:PersonalData
   useEffect(()=>{
     const nonce=window.location.hash.match(/^#transfer\/([a-f0-9-]{36})$/)?.[1];
     if(window.location.origin!==NEW_ORIGIN||!nonce||!window.opener)return;
-    const opener=window.opener as Window;let received=false;
-    const receive=(event:MessageEvent)=>{
+    const opener=window.opener as Window;let received=false;let active=true;
+    const receive=async(event:MessageEvent)=>{
       if(received||event.origin!==OLD_ORIGIN||event.source!==opener||event.data?.type!=='eva-transfer-data'||event.data.nonce!==nonce||typeof event.data.payload!=='string')return;
-      try{const imported=parseDataImport(event.data.payload);received=true;latest.current.onImport(imported);setStatus('Your data is copied into this tab. Saving it now…');setPendingAck({opener,nonce});}
-      catch{setStatus('The transfer could not be completed. Export a backup from the old address and import it here.');}
+      try{const imported=parseDataImport(event.data.payload);received=true;setStatus('Your data is copied into this tab. Saving it now…');await latest.current.onImport(imported);if(active)setPendingAck({opener,nonce});}
+      catch{if(active)setStatus('The transfer could not be completed. Export a backup from the old address and import it here.');}
     };
     const announce=()=>{if(!received)opener.postMessage({type:'eva-transfer-ready',nonce},OLD_ORIGIN);};
     window.addEventListener('message',receive);announce();const timer=setInterval(announce,1000);const timeout=setTimeout(()=>clearInterval(timer),60_000);
-    return()=>{window.removeEventListener('message',receive);clearInterval(timer);clearTimeout(timeout);};
+    return()=>{active=false;window.removeEventListener('message',receive);clearInterval(timer);clearTimeout(timeout);};
   },[]);
   useEffect(()=>()=>cleanup.current(),[]);
   useEffect(()=>{if(!pendingAck||!saved)return;pendingAck.opener.postMessage({type:'eva-transfer-done',nonce:pendingAck.nonce},OLD_ORIGIN);setPendingAck(null);setStatus('Your saved space has moved. Your old copy is still available.');},[pendingAck,saved]);

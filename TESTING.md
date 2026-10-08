@@ -2,7 +2,20 @@
 
 Upgrade date: 7 October 2026 (Asia/Ho_Chi_Minh).
 
-Last updated: 8 October 2026.
+Last updated: 9 October 2026.
+
+## Public release usability and data integrity — 9 October 2026
+
+- All 143 automated tests passed. Independent code, TypeScript and security reviews approved their scopes. The final persistence review independently reran 37 storage/hook tests and TypeScript successfully.
+- Backup imports merge additively with the latest durable data inside the IndexedDB write transaction. Tests cover simultaneous-tab conversation/profile/photo/calendar conflicts, edits before and during an import write, deterministic repeated imports, revised-reading parent links, cyclic revision rejection, oversized-note atomic rejection and save failures. Transfer success waits for the durable import.
+- Chat starts without cards by default. Cards can be added within the conversation; fresh spreads use the latest question. Cancelling a draw continues an unanswered question. Revising an earlier question retains its associated spread rather than an unrelated later draw.
+- Private-reader setup uses a scrollable body and reachable footer. At 320 × 667, the primary action remained inside the viewport and document width was 320px. English and Vietnamese setup screens were checked. The home, language dialog, save status and backup copy were simplified while retaining the lotus branding.
+- Browser calendar checks saved a synthetic future intention, navigated to another month and reloaded. The note and its date marker remained. Selecting a past day listed its conversations, and selecting a record opened the original saved reading.
+- Light/Qwen3-0.6B produced a saved response to a synthetic painting question and its updated fifteen-minute constraint. It included Meaning, Good side, Difficult side, Advice and Clear direction, and mentioned using the fifteen minutes. The original question, update, card and answer remained after a full reload. Screenshot: `../eva-tarot-release-reading-reload.jpg`. Its wording still mixed first/second person and included generic encouragement; this is not evidence of ChatGPT-level quality.
+- The final local production build passed TypeScript and Vite compilation. The large lazy-loaded WebLLM runtime still produces Vite's bundle-size warning; it is not a build failure.
+- The hosted compatibility API is disabled unless `HOSTED_AI_ENABLED=true` is explicitly configured. Provider credentials alone do not activate it. Security review approved the opt-in gate and framing/object restrictions; its 35 focused tests passed. No paid AI request was made.
+- GitHub CI now runs the tests and production build on Node 24. Vercel deployment is explicit; automatic GitHub deployment has not been verified.
+- Browser checks use synthetic local data and desktop viewport emulation. Physical-device installation, microphone capture, cloud backup and successful inference on every device remain outside this verification.
 
 ## Private reader save and recovery fix — 8 October 2026
 

@@ -5,6 +5,7 @@ import { LanguageProvider } from './lib/i18n';
 import './styles.css';
 import './conversation.css';
 import './eva.css';
+import './public-release.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><LanguageProvider><App /></LanguageProvider></React.StrictMode>);
 if ('serviceWorker' in navigator && import.meta.env.PROD) {

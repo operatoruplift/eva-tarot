@@ -13,7 +13,7 @@ const validRequest = { question: 'How can I feel clearer about my work?', focus:
 const clientRequest = { question: validRequest.question, focus: validRequest.focus, cards: validRequest.cardIds.map((id) => cards[id]) };
 
 async function withServer(options, callback) {
-  const server = createApp({ apiKey: '', ...options });
+  const server = createApp({ hostedAIEnabled: true, apiKey: '', gatewayApiKey: '', ...options });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   try { await callback(base); }
@@ -240,6 +240,20 @@ test('API rate limit returns a retry interval', async () => {
   });
 });
 
+test('disabled hosted AI cannot spend provider credits and keeps local response protections', async () => {
+  let providerCalls = 0;
+  await withServer({ hostedAIEnabled: false, apiKey: 'test-key', fetchImpl: async () => { providerCalls += 1; throw new Error('Must not call provider'); } }, async (base) => {
+    assert.deepEqual(await (await fetch(`${base}/api/health`)).json(), { mode: 'disabled' });
+    const response = await post(base);
+    assert.equal(response.status, 503);
+    assert.match((await response.json()).error, /Hosted readings are not enabled/);
+    assert.equal(response.headers.get('Content-Security-Policy'), "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
+    assert.equal(response.headers.get('X-Frame-Options'), 'DENY');
+    assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  });
+  assert.equal(providerCalls, 0);
+});
+
 test('live AI request uses server-only credentials, trusted card context, and bounded user history', async () => {
   let captured;
   await withServer({ apiKey: 'test-secret-not-real', fetchImpl: async (url, options) => {
@@ -336,7 +350,10 @@ test('production static server serves the SPA and blocks hidden files and symlin
   await symlink(join(outside, 'secret.txt'), join(directory, 'escape.txt'));
   try {
     await withServer({ distPath: directory }, async (base) => {
-      assert.match(await (await fetch(base)).text(), /Evara/);
+      const document = await fetch(base);
+      assert.match(await document.text(), /Evara/);
+      assert.equal(document.headers.get('Content-Security-Policy'), "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
+      assert.equal(document.headers.get('X-Frame-Options'), 'DENY');
       assert.match(await (await fetch(`${base}/readings/today`)).text(), /Evara/);
       assert.equal((await fetch(`${base}/sw.js`)).headers.get('Cache-Control'), 'no-cache');
       assert.equal((await fetch(`${base}/.env`)).status, 404);

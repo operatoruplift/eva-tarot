@@ -162,6 +162,7 @@ function extractText(result, providerKind) {
 }
 
 export function createRequestHandler({
+  hostedAIEnabled = process.env.HOSTED_AI_ENABLED === 'true',
   apiKey = process.env.OPENAI_API_KEY?.trim() ?? '',
   model = process.env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini',
   gatewayApiKey = process.env.AI_GATEWAY_API_KEY?.trim() ?? '',
@@ -179,10 +180,14 @@ export function createRequestHandler({
   return async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'same-origin');
+    response.setHeader('Content-Security-Policy', "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
+    response.setHeader('X-Frame-Options', 'DENY');
+    response.setHeader('Permissions-Policy', 'camera=(), microphone=(self), geolocation=()');
     try {
       const pathname = routePath ?? new URL(request.url ?? '/', 'http://localhost').pathname;
       if (pathname === '/api/health') {
         if (request.method !== 'GET') throw new HttpError(405, 'This method is not supported.');
+        if (hostedAIEnabled !== true) return sendJson(response, 200, { mode: 'disabled' });
         const provider = await getProvider({ apiKey, gatewayApiKey, oidcTokenProvider }, request);
         return sendJson(response, 200, { mode: provider ? 'ai' : 'demo' });
       }
@@ -192,6 +197,7 @@ export function createRequestHandler({
       }
       if (request.method !== 'POST') throw new HttpError(405, 'Please submit your question using the reading form.');
       checkOrigin(request);
+      if (hostedAIEnabled !== true) throw new HttpError(503, 'Hosted readings are not enabled. Open Eva Tarot to use the private reader on your device.');
       const now = Date.now();
       for (const [address, entry] of requestsByAddress) if (entry.resetAt <= now) requestsByAddress.delete(address);
       const address = clientAddress(request, isVercel);
@@ -258,6 +264,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid port number.');
   const server = createApp();
   server.on('error', (error) => { console.error(`Eva Tarot could not start: ${error.message}`); process.exitCode = 1; });
-  server.listen(port, process.env.HOST || '0.0.0.0', () => console.log(`Eva Tarot is ready at http://localhost:${port} (${process.env.OPENAI_API_KEY?.trim() || process.env.AI_GATEWAY_API_KEY?.trim() ? 'AI' : 'guided demo'} mode).`));
+  server.listen(port, process.env.HOST || '0.0.0.0', () => console.log(`Eva Tarot is ready at http://localhost:${port} (${process.env.HOSTED_AI_ENABLED !== 'true' ? 'hosted AI disabled' : process.env.OPENAI_API_KEY?.trim() || process.env.AI_GATEWAY_API_KEY?.trim() ? 'hosted AI' : 'guided demo'} mode).`));
   for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => server.close(() => process.exit(0)));
 }

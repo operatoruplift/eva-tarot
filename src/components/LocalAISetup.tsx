@@ -1,40 +1,107 @@
 import { useEffect, useState } from 'react';
-import { Download, ShieldCheck, LoaderCircle, X, Check, Trash2 } from 'lucide-react';
+import { ArrowRight, BookOpen, Check, ChevronDown, Download, LoaderCircle, ShieldCheck, Trash2 } from 'lucide-react';
+import { Logo } from './Brand';
 import { Modal } from './Modal';
 import { useLanguage } from '../lib/i18n';
 import { LOCAL_AI_MODELS, refreshLocalAIModelCache, removeLocalAIModel, setLocalAIModel, type LocalAIModelKey, type LocalAIState } from '../lib/local-ai';
+import './LocalAISetup.css';
 
-export function LocalAISetup({state,preparing=false,startupError='',onEnable,onCancel,onClose,onReference}:{state:LocalAIState;preparing?:boolean;startupError?:string;onEnable:()=>void;onCancel:()=>void;onClose:()=>void;onReference?:()=>void}) {
-  const {t}=useLanguage();
-  const [actionError,setActionError]=useState('');
-  const loading=!state.removing&&(state.status==='loading'||state.status==='checking');
-  const busy=preparing||loading||state.removing||state.status==='generating';
-  const selected=LOCAL_AI_MODELS.find(model=>model.key===state.model)??LOCAL_AI_MODELS[0];
-  useEffect(()=>{void refreshLocalAIModelCache();},[state.model]);
-  const choose=(key:LocalAIModelKey)=>{try{setLocalAIModel(key);setActionError('');}catch(error){setActionError(error instanceof Error?error.message:'Could not change the reader. Please try again.');}};
-  const remove=async()=>{try{setActionError('');await removeLocalAIModel();}catch(error){setActionError(error instanceof Error?error.message:'Could not remove the reader. Please try again.');}};
-  return <Modal title={t('Your private tarot reader')} onClose={onClose} className="ai-setup-modal"><div className="ai-setup">
-    <span className="setup-symbol"><ShieldCheck size={30}/></span><span className="eyebrow">{t('ON YOUR DEVICE. IN YOUR OWN WORDS.')}</span>
-    <h2>{t('A reader that listens.')}<br/>{t('A conversation that stays here.')}</h2>
-    <p>{t('Eva uses the situation and feelings you share in chat to explore the cards with you. The cards are prompts for reflection, not predictions.')}</p>
-    <fieldset className="model-choices" disabled={busy}><legend>{t('Choose your reader')}</legend>{LOCAL_AI_MODELS.map(model=><label key={model.key} className={`model-choice ${state.model===model.key?'selected':''}`}><input type="radio" name="local-reader" value={model.key} checked={state.model===model.key} onChange={()=>choose(model.key)}/><span className="model-choice-copy"><strong>{t(model.name)}{model.key==='light'&&<em>{t('Recommended')}</em>}</strong><span>{t(model.key==='detailed'?'About 1 GB · for deeper readings':'About 360 MB · simpler replies')}</span></span></label>)}</fieldset>
-    <ul className="setup-facts"><li><Check size={17}/>{t('Your messages stay on this device.')}</li><li><Download size={17}/>{t(state.cached?'This reader is downloaded on this device.':'One-time download · about {size} MB',{size:selected.downloadMB})}</li><li><ShieldCheck size={17}/>{t('No subscription or AI API key needed.')}</li></ul>
-    <p className="setup-small">{t('Requires a browser with WebGPU and enough memory. Local AI can make mistakes and may be less capable than ChatGPT.')}</p>
-    {state.model==='detailed'&&<p className="setup-small">{t('The Detailed reader needs more memory and may be slower. Choose Light if your device struggles.')}</p>}
-    {state.selectionWarning&&<p className="setup-error" role="status">{t(state.selectionWarning)}</p>}
-    {preparing&&<p role="status"><LoaderCircle className="spin" size={18}/>{t('Saving your space before loading the reader…')}</p>}
-    {startupError&&<p className="setup-error" role="alert">{startupError}</p>}
-    {actionError&&<p className="setup-error" role="alert">{t(actionError)}</p>}
-    {loading&&<div className="model-progress" role="status"><div><LoaderCircle className="spin" size={18}/>{t('Preparing your private reader…')}<strong>{Math.round(state.progress*100)}%</strong></div><progress value={state.progress} max={1}/><p>{t('Keep this page open. The first download can take a few minutes.')}</p><button className="text-button" onClick={onCancel}><X size={16}/>{t('Cancel download')}</button></div>}
-    {state.removing&&<p role="status"><LoaderCircle className="spin" size={18}/>{t('Removing the downloaded reader…')}</p>}
-    {(state.status==='error'||state.status==='unsupported')&&<p className="setup-error" role="alert">{t(state.detail)}</p>}
-    {!busy&&state.status!=='unsupported'&&<button className="primary-button" onClick={onEnable}><Download size={18}/>{t(state.status==='ready'?'Continue conversation':state.cached?'Load reader & continue':'Download & start private AI')}</button>}
-    {state.status==='generating'&&<div className="setup-error"><p>{t('Another reply is still being written. Wait for it to finish, or stop it before starting this question.')}</p><button className="text-button" onClick={onCancel}>{t('Stop current reply')}</button></div>}
-    {state.status==='unsupported'&&<p>{t('Try a current browser with WebGPU support. Your history and card library still work here.')}</p>}
-    {onReference&&!preparing&&<><p className="setup-small">{t('Card meanings are general reference notes; private AI connects them to your conversation.')}</p><button className="text-button reference-choice" onClick={onReference}>{t('Show card meanings only (not AI)')}</button></>}
-    <button type="button" disabled={busy} className="text-button remove-reader" onClick={()=>void remove()}><Trash2 size={16}/>{t('Clear this reader’s download')}</button>
-    <p className="setup-small">{t('Clears complete or partial downloads for the selected reader. Your conversations and other downloads stay saved.')}</p>
-    <p className="setup-small">{t('Voice dictation may use your browser’s online speech service.')}</p>
-    <p className="setup-small">{t('The model is downloaded from Hugging Face and MLC. Your chat text is not sent to them.')}</p>
-  </div></Modal>;
+type LocalAISetupProps = {
+  state: LocalAIState;
+  preparing?: boolean;
+  startupError?: string;
+  onEnable: () => void;
+  onCancel: () => void;
+  onClose: () => void;
+  onReference?: () => void;
+  onExplore?: () => void;
+};
+
+const readerChoices = [...LOCAL_AI_MODELS].sort((left, right) => Number(right.key === 'light') - Number(left.key === 'light'));
+
+export function LocalAISetup({ state, preparing = false, startupError = '', onEnable, onCancel, onClose, onReference, onExplore }: LocalAISetupProps) {
+  const { t } = useLanguage();
+  const [actionError, setActionError] = useState('');
+  const checking = !state.removing && state.status === 'checking';
+  const loading = !state.removing && state.status === 'loading';
+  const busy = preparing || checking || loading || !!state.removing || state.status === 'generating';
+  const unsupported = state.status === 'unsupported';
+  const selected = LOCAL_AI_MODELS.find(model => model.key === state.model) ?? readerChoices[0];
+  const progress = Math.max(0, Math.min(1, state.progress));
+  const heading = state.status === 'ready' ? 'Your private reader is ready' : 'Set up your private reader';
+
+  useEffect(() => { void refreshLocalAIModelCache(); }, [state.model]);
+
+  const choose = (key: LocalAIModelKey) => {
+    try { setLocalAIModel(key); setActionError(''); }
+    catch (error) { setActionError(error instanceof Error ? error.message : 'Could not change the reader. Please try again.'); }
+  };
+  const remove = async () => {
+    try { setActionError(''); await removeLocalAIModel(); }
+    catch (error) { setActionError(error instanceof Error ? error.message : 'Could not remove the reader. Please try again.'); }
+  };
+  const busyLabel = preparing ? 'Saving your conversation…'
+    : checking ? 'Checking your device…'
+      : state.removing ? 'Removing the downloaded reader…'
+        : state.status === 'generating' ? 'Writing a reply…' : 'Loading your reader…';
+
+  return <Modal title={t(heading)} onClose={onClose} className="ai-setup-modal">
+    <div className="ai-setup reader-setup">
+      <header className="reader-setup-header">
+        <span className="reader-setup-logo"><Logo size={44} /></span>
+        <h2>{t(heading)}</h2>
+      </header>
+      <div className="reader-setup-scroll">
+        <p className="reader-setup-intro">{t('Talk through your question with an AI that runs on your device.')}</p>
+        {!unsupported && <fieldset className="model-choices" disabled={busy}>
+          <legend>{t('Choose your reader')}</legend>
+          {readerChoices.map(model => <label key={model.key} className={`model-choice ${state.model === model.key ? 'selected' : ''}`}>
+            <input type="radio" name="local-reader" value={model.key} checked={state.model === model.key} onChange={() => choose(model.key)} />
+            <span className="model-choice-copy">
+              <strong>{t(model.name)}{model.key === 'light' && <em>{t('Recommended')}</em>}</strong>
+              <span>{t(model.key === 'light' ? '360 MB · a lighter choice for your device' : 'About 1 GB · more detail, more memory')}</span>
+            </span>
+          </label>)}
+        </fieldset>}
+        {!unsupported && <div className="reader-download-note">
+          {state.cached ? <Check size={17} /> : <Download size={17} />}
+          <span>{t(state.cached ? 'Already downloaded. Ready to load.' : 'One-time download · about {size} MB', { size: selected.downloadMB })}</span>
+        </div>}
+        <p className="reader-compatibility">{t('Needs a browser with WebGPU and enough memory. Some phones and browsers won’t support it.')}</p>
+        {state.selectionWarning && <p className="setup-error" role="status">{t(state.selectionWarning)}</p>}
+        {startupError && <p className="setup-error" role="alert">{startupError}</p>}
+        {actionError && <p className="setup-error" role="alert">{t(actionError)}</p>}
+        {(state.status === 'error' || unsupported) && <p className="setup-error" role="alert">{t(state.detail)}</p>}
+        {(preparing || checking || loading || state.removing) && <div className="reader-setup-progress" role="status" aria-live="polite">
+          <div><LoaderCircle className="spin" size={17} /><span>{t(busyLabel)}</span>{loading && <strong>{Math.round(progress * 100)}%</strong>}</div>
+          {loading && <progress aria-label={t('Reader loading progress')} value={progress} max={1} />}
+          <p>{t(preparing ? 'Your reader will start once your latest changes are saved.' : checking ? 'Checking browser support and available storage.' : state.removing ? 'Your conversations stay saved.' : 'Keep this page open. The first download can take a few minutes.')}</p>
+        </div>}
+        {state.status === 'generating' && <p className="setup-error" role="status">{t('Another reply is still being written. Wait for it to finish, or stop it before starting this question.')}</p>}
+        {unsupported && <p className="reader-setup-intro">{t('You can still explore all 78 cards and return to your saved history.')}</p>}
+        <details className="reader-setup-details">
+          <summary>{t('Privacy & download settings')}<ChevronDown size={17} /></summary>
+          <div>
+            <p><ShieldCheck size={16} />{t('Your messages stay on this device.')}</p>
+            <p>{t('No subscription or AI API key needed.')}</p>
+            <p>{t('The model is downloaded from Hugging Face and MLC. Your chat text is not sent to them.')}</p>
+            <p>{t('Voice dictation may use your browser’s online speech service.')}</p>
+            <p>{t('Local AI can make mistakes. Use readings as reflection, not predictions.')}</p>
+            <button type="button" disabled={busy} className="text-button remove-reader" onClick={() => void remove()}><Trash2 size={16} />{t('Clear this reader’s download')}</button>
+            <p>{t('Clears complete or partial downloads for the selected reader. Your conversations and other downloads stay saved.')}</p>
+          </div>
+        </details>
+      </div>
+      <footer className="reader-setup-actions">
+        {unsupported ? onExplore && <button type="button" className="primary-button" onClick={onExplore} disabled={busy}><BookOpen size={18} />{t('Explore the card library')}</button>
+          : <button type="button" className="primary-button" onClick={onEnable} disabled={busy}>
+            {busy ? <LoaderCircle className="spin" size={18} /> : state.status === 'ready' ? <ArrowRight size={18} /> : <Download size={18} />}
+            {busy ? t(busyLabel) : t(state.status === 'ready' ? 'Continue conversation' : state.cached ? 'Load reader & continue' : 'Download & start · {size} MB', { size: selected.downloadMB })}
+          </button>}
+        {(preparing || checking || loading || state.status === 'generating') && <button type="button" className="text-button" onClick={onCancel}>{t(state.status === 'generating' ? 'Stop current reply' : 'Cancel setup')}</button>}
+        {onReference && <button type="button" className="text-button reference-choice" disabled={busy} onClick={onReference}>{t('Read card meanings without AI')}</button>}
+        {!onReference && !busy && !unsupported && <span className="reader-setup-reassurance"><ShieldCheck size={14} />{t('Your messages stay on this device.')}</span>}
+      </footer>
+    </div>
+  </Modal>;
 }
