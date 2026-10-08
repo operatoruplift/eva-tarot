@@ -163,9 +163,9 @@ function extractText(result, providerKind) {
 export function createRequestHandler({
   hostedAIEnabled = process.env.HOSTED_AI_ENABLED === 'true',
   apiKey = process.env.OPENAI_API_KEY?.trim() ?? '',
-  model = process.env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini',
+  model = process.env.OPENAI_MODEL?.trim() || 'gpt-4.1',
   gatewayApiKey = process.env.AI_GATEWAY_API_KEY?.trim() ?? '',
-  gatewayModel = process.env.AI_GATEWAY_MODEL?.trim() || 'openai/gpt-4.1-mini',
+  gatewayModel = process.env.AI_GATEWAY_MODEL?.trim() || 'openai/gpt-4.1',
   oidcTokenProvider,
   isVercel = process.env.VERCEL === '1',
   routePath,

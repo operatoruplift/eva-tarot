@@ -4,6 +4,14 @@ Upgrade date: 7 October 2026 (Asia/Ho_Chi_Minh).
 
 Last updated: 9 October 2026.
 
+## Everyday reading explanations — 9 October 2026
+
+- Hosted readings now use explicit everyday-language guidance, native Vietnamese first-reading instructions, and a clearly hypothetical writing example. All five sections per card remain. Brief clarification questions receive a direct answer rather than another whole spread. The prompts preserve the user's stated time, supplies and boundaries and ask for one prioritized starting point.
+- Canonical symbolism, helpful themes and risks still come from the trusted deck. Generic advice/exercise templates are no longer supplied as trusted context; the model must create advice for the actual conversation. Static reference notes and previously saved answers remain unchanged. The optional on-device prompt receives compact equivalent wording without changing inference, consent or storage behavior.
+- Live Vietnamese comparisons favored full `gpt-4.1` over the previous mini model for this task, so both hosted-provider defaults now use it. Per-reading cost is higher; the existing $5 non-refreshing project budget, WAF limit, timeouts and output limits are unchanged. Environment model overrides remain supported.
+- All 171 tests passed on the final source. Production build and TypeScript checking passed. Independent code and TypeScript reviews approved the complete diff. Local/context tests preserve complete card facts and the 5,400-byte prompt limit; no new physical-device or local-model inference claim is made.
+- Actual Gateway tests on the final candidate returned 200 for a Vietnamese relationship reading (13.530s), a brief five-minute/no-journaling follow-up (2.718s), and a ten-card Vietnamese reading (26.292s). Independent editorial review accepted the release: the follow-up gave concrete steps without rerunning the spread; the relationship reply respected boundaries; the ten-card reply included all 50 required sections. Long replies can still contain formal wording or infer unreported qualities, so the checks establish improvement rather than guaranteed writing quality.
+
 ## Online reader and reading-link recovery — 9 October 2026
 
 - Online AI is now the default. Opening the app or sending an online question does not download or initialize WebGPU. Experimental on-device AI remains an explicit reader option with an online escape action.

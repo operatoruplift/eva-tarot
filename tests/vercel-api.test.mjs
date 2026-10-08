@@ -116,7 +116,7 @@ test('gateway key uses chat completions with trusted cards and the requested con
   assert.deepEqual(result.body, { mode: 'ai', text: 'A thoughtful, grounded reflection.' });
   assert.equal(captured.url, 'https://ai-gateway.vercel.sh/v1/chat/completions');
   assert.equal(captured.options.headers.Authorization, 'Bearer test-gateway-key');
-  assert.equal(captured.body.model, 'openai/gpt-4.1-mini');
+  assert.equal(captured.body.model, 'openai/gpt-4.1');
   assert.equal(captured.body.store, false);
   assert.equal(captured.body.max_tokens, 2_600);
   assert.equal(captured.body.messages[0].role, 'system');
@@ -294,8 +294,10 @@ test('every supported spread uses server-owned guidance and all five interpretat
       assert.ok(instructions.includes(guidance.meaning));
       assert.ok(instructions.includes(guidance.good));
       assert.ok(instructions.includes(guidance.challenge));
-      assert.ok(instructions.includes(guidance.advice));
-      assert.ok(instructions.includes(guidance.direction));
+      // Keep symbolism/strengths/risks canonical, without feeding generic
+      // exercises that can override the user's actual time and circumstances.
+      assert.ok(!instructions.includes(`Advice: ${guidance.advice}`));
+      assert.ok(!instructions.includes(`Clear direction: ${guidance.direction}`));
     }
   }
 });
@@ -307,7 +309,7 @@ test('Vietnamese reading structure and a fresh draw remain complete even with pr
     return Response.json(gatewayResult);
   } }), { body: { ...reading, language: 'vi', followUp: false, history: [{ role: 'assistant', content: 'An earlier interpretation with different cards.' }] } });
   assert.match(captured.messages[0].content, /Ý nghĩa; Mặt thuận lợi; Mặt khó khăn; Lời khuyên; Hướng đi cụ thể/);
-  assert.match(captured.messages[0].content, /complete 3-card reading/);
+  assert.match(captured.messages[0].content, /Giải thích đủ 3 lá bài/);
   assert.equal(captured.max_tokens, 2_600);
 });
 
