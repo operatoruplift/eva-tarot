@@ -2,12 +2,15 @@
 
 ## 22 October 2026 — clearer credit and payment recovery
 
+Production: https://evatarot.xyz, deployment `dpl_6pSX6EHZnx6NRhBDyJxSC4TUQ2Cd`. Application source `ecc0745`; [GitHub CI passed](https://github.com/operatoruplift/eva-tarot/actions/runs/39646805824). Both old Vercel aliases were moved to this release.
+
 This release keeps the existing one-reply trial, 25k/60k/95k VND packages, manual confirmation, AI model, prompt and provider budget. It adds a session-bound insufficient-credit sheet, server wallet/cost labels, bounded pending-payment refresh and a same-tab reader-return route that survives reloading pricing. See [feedback decisions](docs/FEEDBACK_DECISIONS.md) for the supplied suggestions and deferred work.
 
 - Full automated suite: **248 passed, 1 skipped, 0 failed** (249 total; optional isolated PostgreSQL test skipped). Strict TypeScript and the production build passed. The existing lazy WebLLM bundle-size warning remains.
 - Targeted tests cover typed credit errors, refresh coalescing/invalidation, offline/hidden pause, bounded polling/backoff, terminal orders and safe return-route persistence. Payment mutation invalidates older in-flight wallet reads. Storage failures and unsafe return values fall back safely.
 - Independent code and TypeScript reviews approved the implementation after fixing payment-refresh races and informative-text contrast. Paywall text measured at least 5.75:1 on its light surfaces.
 - Mobile browser checks at 390 × 844 verified the exhausted-credit sheet, dismiss/reopen, current catalog prices, automatic payment confirmation, a full pricing reload returning to the exact saved reading, unchanged question/card, explicit retry reducing balance once, and reply persistence after reload. Fixture request counts confirmed payment/return did not automatically generate a reply.
+- Published browser checks verified English and Vietnamese wallet/reply-cost labels and the Daily Card cost at 390 × 844. Public home and health returned 200; health reports configured AI mode, not a fresh inference test. Catalog still reports one trial reply and the approved 25k/60k/95k packages. No new live AI or real payment test was performed for this frontend-only release.
 - Browser checks use synthetic questions and an isolated local API fixture; payment confirmation in that fixture does not represent a bank transfer, production ledger write or live inference. Existing backend/provider checks are recorded in the preceding release below.
 
 
