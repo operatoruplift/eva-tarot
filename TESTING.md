@@ -2,9 +2,9 @@
 
 ## 21 October 2026 — pricing and public website release
 
-Production: https://evatarot.xyz (Vercel deployment `dpl_9zrDZ78aMaHmkW8Bij4XU4ka7NCT`). Both old Vercel aliases serve this application and retain explicit saved-data transfers; `www` redirects to the apex. Namecheap A/CNAME values match Vercel recommendations. The registered domain is `evatarot.xyz` with one e.
+Production: https://evatarot.xyz (Vercel deployment `dpl_23RpdDFx1quLUWV14csMAt3hNE8Q`). Both old Vercel aliases serve this application and retain explicit saved-data transfers; `www` redirects to the apex. Namecheap A/CNAME values match Vercel recommendations. The registered domain is `evatarot.xyz` with one e.
 
-Application source: `8de3889`. Supabase Singapore project `muiqwbcavofvnjbwhbem` has the CLI-generated launch migration plus capability-authenticated commerce and journal Edge Functions. Owner allowlist/auth users were provisioned separately from public source. Temporary provisioning code was removed after each user was created; current commerce function contains no bootstrap route. Organization-owner email can use built-in Auth mail; the external owner email still needs custom SMTP. Actual owner verification/login remains a user action and was not impersonated during testing.
+Application source: `09340ec`. [GitHub test/build CI passed](https://github.com/operatoruplift/eva-tarot/actions/runs/39639673029). Supabase Singapore project `muiqwbcavofvnjbwhbem` has the CLI-generated launch migration plus capability-authenticated commerce and journal Edge Functions. Owner allowlist/auth users were provisioned separately from public source. Temporary provisioning code was removed after each user was created; current commerce function contains no bootstrap route. Organization-owner email can use built-in Auth mail; the external owner email still needs custom SMTP. Actual owner verification/login remains a user action and was not impersonated during testing.
 
 - Full automated suite: **230 passed, 1 skipped, 0 failed** (the optional SQL integration test requires an isolated database URL). Production build and strict TypeScript passed.
 - Isolated real PostgreSQL 17 suite: **12 passed**, including concurrent confirmation/credit-once, reservation/refund, RLS denial, price snapshots and optimistic settings updates. Edge/proxy security tests: **20 passed**.
