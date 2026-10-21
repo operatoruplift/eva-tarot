@@ -271,7 +271,8 @@ test('live AI request uses server-only credentials, trusted card context, and bo
     assert.match(captured.body.instructions, /The Magician/);
     assert.match(captured.body.instructions, /Strength/);
     assert.equal(captured.body.input[0].role, 'assistant');
-    assert.equal(JSON.parse(captured.body.input[1].content).question, validRequest.question);
+    assert.equal(captured.body.input.at(-1).content, validRequest.question);
+    assert.ok(captured.body.input.some(message => message.role === 'user' && message.content.includes(validRequest.focus)));
   });
 });
 

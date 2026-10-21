@@ -2,6 +2,8 @@ import { cards as deck, type TarotCard } from '../data/tarot.ts';
 import { tarotVi } from '../data/tarot-vi.ts';
 import { spreadPositions, type ReadingLanguage } from '../data/spreads.ts';
 import { getCardGuidance } from '../data/card-guidance.ts';
+import { getCommerceHeaders } from './commerce.ts';
+import { readingAttempts, type ReadingAttempt } from './reading-attempts.ts';
 
 export type ReadingHistoryMessage = { role: 'user' | 'assistant'; content: string };
 export type ReadingRequest = {
@@ -12,9 +14,19 @@ export type ReadingRequest = {
   language?: ReadingLanguage;
   followUp?: boolean;
   continuation?: boolean;
+  /** A stable message/reading intent, reused only when retrying that reply. */
+  requestKey?: string;
   signal?: AbortSignal;
 };
 export type ReadingResult = { text: string; mode: 'ai' | 'demo' };
+export class ReadingServiceError extends Error {
+  status: number;
+  code?: string;
+  creditStatus?: 'refunded' | 'pending';
+  constructor(message: string, status: number, code?: string, creditStatus?: 'refunded' | 'pending') {
+    super(message); this.name = 'ReadingServiceError'; this.status = status; this.code = code; this.creditStatus = creditStatus;
+  }
+}
 
 const focusActions: Record<string, string> = {
   love: 'Notice where connection feels mutual. A gentle, honest conversation about one need can be a useful place to begin.',
@@ -223,20 +235,26 @@ export async function getReading(input: ReadingRequest): Promise<ReadingResult> 
   const stop = () => controller.abort();
   input.signal?.addEventListener('abort', stop, { once: true });
   if (input.signal?.aborted) controller.abort();
+  let attempt: ReadingAttempt | undefined;
   try {
+    if (controller.signal.aborted) throw new DOMException('Reply stopped.', 'AbortError');
+    const body = JSON.stringify({
+      question: input.question,
+      focus: input.focus,
+      cardIds: input.cards.map((card) => card.id),
+      language: input.language ?? 'en',
+      history: boundedHistory(input.history, input.question),
+      followUp: input.followUp ?? false,
+      continuation: input.continuation ?? /^(please\s+)?(continue|go on|carry on|tiep tuc|viet tiep|hay tiep tuc)[.!?…]*$/i.test(input.question.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')),
+    });
+    attempt = await readingAttempts.acquire(input.requestKey, body);
+    let walletHeaders: Record<string, string> = {};
+    try { walletHeaders = getCommerceHeaders(); } catch { /* The server can still allow a free reading. */ }
     if (controller.signal.aborted) throw new DOMException('Reply stopped.', 'AbortError');
     const response = await fetch('/api/reading', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        question: input.question,
-        focus: input.focus,
-        cardIds: input.cards.map((card) => card.id),
-        language: input.language ?? 'en',
-        history: boundedHistory(input.history, input.question),
-        followUp: input.followUp ?? false,
-        continuation: input.continuation ?? /^(please\s+)?(continue|go on|carry on|tiep tuc|viet tiep|hay tiep tuc)[.!?…]*$/i.test(input.question.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')),
-      }),
+      headers: { 'Content-Type': 'application/json', ...walletHeaders, 'X-Eva-Request': attempt.id },
+      body,
       signal: controller.signal,
     });
     const data: unknown = await response.json();
@@ -244,10 +262,15 @@ export async function getReading(input: ReadingRequest): Promise<ReadingResult> 
     if (!data || typeof data !== 'object') throw new Error('The reading service returned an unexpected response. Please try again.');
     const result = data as Record<string, unknown>;
     if (!response.ok) {
-      throw new Error(typeof result.error === 'string' ? result.error : 'We could not finish your reading. Please try again in a moment.');
+      const code = typeof result.code === 'string' ? result.code : undefined;
+      const creditStatus = result.creditStatus === 'refunded' || result.creditStatus === 'pending' ? result.creditStatus : undefined;
+      if (creditStatus === 'refunded' || code === 'reading_ended' || code === 'reading_expired') readingAttempts.clear(attempt);
+      throw new ReadingServiceError(typeof result.error === 'string' ? result.error : 'We could not finish your reading. Please try again in a moment.', response.status, code, creditStatus);
     }
     if (result.mode === 'demo') throw new Error('Online AI is not available right now. Your question is kept here. Please try again later.');
     if (result.mode === 'ai' && typeof result.text === 'string' && result.text.trim()) {
+      // Keep the reference so an answer lost before the journal saves can be recovered.
+      // A new user message has a distinct requestKey.
       return { text: result.text, mode: 'ai' };
     }
     throw new Error('The reading service returned an incomplete response. Please try again.');

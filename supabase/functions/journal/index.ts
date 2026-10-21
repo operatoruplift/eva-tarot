@@ -4,7 +4,7 @@
 declare const Deno: { env: { get(name: string): string | undefined }; serve(handler: (request: Request) => Promise<Response>): void };
 
 export const MAX_DOCUMENT_BYTES = 1_048_576;
-export const PRODUCTION_ORIGINS: string[] = ['https://evara-omega.vercel.app', 'https://evatarot.vercel.app'];
+export const PRODUCTION_ORIGINS: string[] = ['https://evara-omega.vercel.app', 'https://evatarot.vercel.app', 'https://evatarot.xyz', 'https://www.evatarot.xyz'];
 const localOrigins = ['http://localhost:3001', 'http://127.0.0.1:3001', 'http://localhost:5173'];
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const text = (value: unknown, max: number) => typeof value === 'string' && value.length <= max;

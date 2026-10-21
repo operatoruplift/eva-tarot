@@ -4,7 +4,7 @@
   "short_name": "Eva Tarot",
   "description": "A gentle space for thoughtful tarot readings and a fresh perspective on your day.",
   "lang": "en",
-  "start_url": "/",
+  "start_url": "/#chat",
   "scope": "/",
   "display": "standalone",
   "background_color": "#FDFBF7",

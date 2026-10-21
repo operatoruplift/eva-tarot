@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { cards } from '../src/data/tarot.ts';
 import { readingCounts, readingLanguages } from '../src/data/spreads.ts';
 import { buildHostedReadingPrompt } from './reading-prompt.mjs';
+import { CommerceError, createCommerceProxyHandler, createCommerceReadingClient } from './commerce-proxy.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY_BYTES = 40_960;
@@ -173,10 +174,14 @@ export function createRequestHandler({
   distPath = resolve(projectRoot, 'dist'),
   rateLimit = 30,
   rateWindowMs = 10 * 60_000,
+  commerceClient = createCommerceReadingClient(),
+  commerceHandler = createCommerceProxyHandler(),
 } = {}) {
   // This limit is instance-local; it is shared by requests in one warm function.
   const requestsByAddress = new Map();
   return async (request, response) => {
+    let payment;
+    let creditStatus;
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'same-origin');
     response.setHeader('Content-Security-Policy', "frame-ancestors 'none'; object-src 'none'; base-uri 'self'");
@@ -184,6 +189,7 @@ export function createRequestHandler({
     response.setHeader('Permissions-Policy', 'camera=(), microphone=(self), geolocation=()');
     try {
       const pathname = routePath ?? new URL(request.url ?? '/', 'http://localhost').pathname;
+      if (pathname === '/api/commerce') return await commerceHandler(request, response);
       if (pathname === '/api/health') {
         if (request.method !== 'GET') throw new HttpError(405, 'This method is not supported.');
         if (hostedAIEnabled !== true) return sendJson(response, 200, { mode: 'disabled' });
@@ -207,8 +213,21 @@ export function createRequestHandler({
       usage.count += 1;
       requestsByAddress.set(address, usage);
       const input = validateReadingRequest(await readJson(request));
+      const totalDeadline = AbortSignal.timeout(78_000);
       const provider = await getProvider({ apiKey, gatewayApiKey, oidcTokenProvider }, request);
       if (!provider) throw new HttpError(503, 'Online AI is not connected right now. Your conversation is saved; please try again later.', 'AI_CONFIGURATION');
+
+      const paymentRequest = {
+        deviceToken: request.headers['x-eva-device'], requestId: request.headers['x-eva-request'],
+        input, signal: totalDeadline, clientAddress: address,
+      };
+      const reservation = await commerceClient.reserve(paymentRequest);
+      if (reservation.status === 'completed' && reservation.response) {
+        const cached = reservation.response;
+        if (cached.mode !== 'ai' || typeof cached.text !== 'string' || !cached.text.trim()) throw new HttpError(502, 'This saved reading could not be opened. Please try again.', 'AI_INCOMPLETE');
+        return sendJson(response, 200, cached);
+      }
+      if (reservation.required) payment = paymentRequest;
 
       const { instructions, messages, maxTokens } = buildHostedReadingPrompt(input);
       const isGateway = provider.kind === 'gateway';
@@ -225,7 +244,7 @@ export function createRequestHandler({
         input: messages,
       };
       let upstream;
-      const signal = AbortSignal.timeout(75_000);
+      const signal = AbortSignal.any([totalDeadline, AbortSignal.timeout(75_000)]);
       try {
         upstream = await fetchImpl(isGateway ? 'https://ai-gateway.vercel.sh/v1/chat/completions' : 'https://api.openai.com/v1/responses', {
           method: 'POST',
@@ -250,9 +269,22 @@ export function createRequestHandler({
       catch { throw new HttpError(502, 'The AI service returned an unexpected response. Your conversation is saved; please try again.', 'AI_UNAVAILABLE'); }
       const text = extractText(result, provider.kind);
       if (!text) throw new HttpError(502, 'Your AI reading was incomplete. Your conversation is saved; please try again in a moment.', 'AI_INCOMPLETE');
-      return sendJson(response, 200, { mode: 'ai', text });
+      const answer = { mode: 'ai', text };
+      if (payment) {
+        await commerceClient.finish({ ...payment, response: answer, signal: totalDeadline });
+        payment = undefined;
+      } else if (reservation.configured && commerceClient.recordCompleted) {
+        await commerceClient.recordCompleted({ deviceToken: paymentRequest.deviceToken, requestId: paymentRequest.requestId, clientAddress: address, signal: AbortSignal.any([totalDeadline, AbortSignal.timeout(2_000)]) })
+          .catch(() => { console.warn('Eva reading analytics could not be recorded.'); });
+      }
+      return sendJson(response, 200, answer);
     } catch (error) {
-      if (!response.headersSent) sendJson(response, error instanceof HttpError ? error.status : 500, { error: error instanceof HttpError ? error.message : 'Something interrupted your reading. Please try again.', ...(error instanceof HttpError && error.code ? { code: error.code } : {}) });
+      if (payment) {
+        try { const result = await commerceClient.refund({ ...payment, signal: AbortSignal.timeout(5_000) }); creditStatus = result?.ok === true ? 'refunded' : 'pending'; }
+        catch { creditStatus = 'pending'; console.warn('Eva reading credit recovery is pending.'); }
+      }
+      const known = error instanceof HttpError || error instanceof CommerceError;
+      if (!response.headersSent) sendJson(response, known ? error.status : 500, { error: known ? error.message : 'Something interrupted your reading. Please try again.', ...(known && error.code ? { code: error.code } : {}), ...(creditStatus ? { creditStatus } : {}) });
       else response.end();
     }
   };

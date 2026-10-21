@@ -8,6 +8,10 @@
     "api/*.mjs": {"maxDuration": 90, "includeFiles": "src/data/**"}
   },
   "rewrites": [
+    {"source": "/admin", "destination": "/index.html"},
+    {"source": "/pricing", "destination": "/index.html"},
+    {"source": "/support", "destination": "/index.html"},
+    {"source": "/donate", "destination": "/index.html"},
     {"source": "/reading", "destination": "/index.html"},
     {"source": "/reading/:path*", "destination": "/index.html"},
     {"source": "/chat", "destination": "/index.html"},

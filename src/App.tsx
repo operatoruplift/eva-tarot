@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Bookmark, Check, ChevronRight, Compass, Download, Heart, HelpCircle, MessageCircle, Plus, RefreshCw, Settings2, Sparkles, Sun, Wind, X, CalendarDays, Search, Globe, Upload, LoaderCircle, Pencil, Square, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bookmark, Check, ChevronRight, Compass, Download, Heart, HelpCircle, MessageCircle, Plus, RefreshCw, Settings2, Sparkles, Sun, Wind, X, CalendarDays, Search, Globe, Upload, LoaderCircle, Pencil, Square, ShieldCheck, Wallet } from 'lucide-react';
 import { Brand, Logo } from './components/Brand';
 import { Modal } from './components/Modal';
 import { SoftSelect } from './components/SoftSelect';
@@ -35,6 +35,8 @@ import { EditReading } from './components/EditReading';
 import { DomainTransfer } from './components/DomainTransfer';
 import { localDay } from './lib/storage';
 import type { Session } from './lib/storage';
+import { commerceRequest, type CommerceCatalog } from './lib/commerce';
+import { siteSurface } from './lib/site-routes';
 
 type View = AppView | 'missing';
 type Phase = 'idle' | 'shuffling' | 'picking';
@@ -60,7 +62,7 @@ function Paragraphs({text}:{text:string}) {
   })}</div>;
 }
 
-export default function App() {
+export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
   const data = usePersistentData();
   const {profile,setProfile,sessions,setSessions,practiceDays,setPracticeDays,dayNotes,setDayNotes,ready} = data;
   const {t,language,setLanguage,locale,formatDate} = useLanguage();
@@ -82,6 +84,7 @@ export default function App() {
   const [toast,setToast] = useState('');
   const [ai,setAI] = useState(getLocalAIState);
   const [readerMode,setReaderMode] = useState<ReaderMode>('online');
+  const [paidReplies,setPaidReplies] = useState(false);
   const [showReaderOptions,setShowReaderOptions] = useState(false);
   const [showOnlineDisclosure,setShowOnlineDisclosure] = useState(false);
   const [initialOnlineApproval] = useState(() => { try { return readOnlineApproval(window.localStorage); } catch { return readOnlineApproval(); } });
@@ -122,6 +125,14 @@ export default function App() {
   });
 
   useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),5000);return()=>clearTimeout(timer);},[toast]);
+  useEffect(()=>{
+    const controller = new AbortController();
+    const refresh = () => { void commerceRequest<{catalog:CommerceCatalog}>('catalog', {}, {signal:controller.signal})
+      .then(result=>setPaidReplies(['paid','free_trial'].includes(result.catalog?.settings?.pricing_mode || ''))).catch(()=>{}); };
+    refresh(); window.addEventListener('focus',refresh);
+    return()=>{controller.abort();window.removeEventListener('focus',refresh);};
+  },[]);
+
   useEffect(()=>{
     const unsubscribe=subscribeLocalAI(()=>setAI(getLocalAIState()));
     const install=(event:Event)=>{event.preventDefault();setInstallPrompt(event as InstallPrompt);};
@@ -170,7 +181,7 @@ export default function App() {
     setStreaming(previous=>({...previous,[session.id]:''}));
     try{
       await waitForReaderSave(data.flush,controller.signal);
-      const request={signal:controller.signal,question,focus:session.focus,cards:drawn,language:language as ReadingLanguage,followUp:hasReplyForCurrentSpread(session.messages),history:conversationContext(session.messages)};
+      const request={requestKey:[session.id,[...session.messages].reverse().find(message=>message.role==='user')?.id,[...session.messages].reverse().find(message=>message.cards?.length)?.id,language].join(':'),signal:controller.signal,question,focus:session.focus,cards:drawn,language:language as ReadingLanguage,followUp:hasReplyForCurrentSpread(session.messages),history:conversationContext(session.messages)};
       const text=mode==='online'?(await getReading(request)).text:await generateLocalReading({...request,onToken:text=>setStreaming(previous=>({...previous,[session.id]:text}))});
       if(controller.signal.aborted)throw new DOMException('Reply stopped.','AbortError');
       if(text.trim()){
@@ -243,6 +254,7 @@ export default function App() {
   }
   function startConversation(question:string,count:number,daily=false){
     if(!ready)return;
+    void commerceRequest('track_event',{name:'start_chat',page:'app'}).catch(()=>{});
     clearSelection();setInput('');
     const normalized=question.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
     const listing=/(?:78|toan bo|full|entire).*(?:deck|bai)|(?:list|show|liet ke|sap xep).*(?:cards|deck|bai)/.test(normalized);
@@ -303,8 +315,9 @@ export default function App() {
   }
   const routeReader=useRef(()=>{});
   routeReader.current=()=>{
+    if(siteSurface(window.location.hash,window.location.pathname)!=='app')return;
     const route=readRoute(window.location.hash,sessions);
-    if(route.view==='chat'){const session=sessions.find(entry=>entry.id===route.sessionId);if(session)openSession(session,false);return;}
+    if(route.view==='chat'){if(view==='chat'&&activeId===route.sessionId)return;const session=sessions.find(entry=>entry.id===route.sessionId);if(session)openSession(session,false);return;}
     if(route.view==='missing'){clearSelection();setActiveId(null);setMissingReason(route.reason);setView('missing');return;}
     go(route.view,false);
   };
@@ -332,7 +345,7 @@ export default function App() {
       <button className="new-reading" onClick={newChat}><Plus size={19}/>{t('New conversation')}<Sparkles size={17}/></button>
       <nav className="primary-nav">{navItems.map(item=><button key={item.view} className={view===item.view||(item.view==='home'&&view==='chat')?'active':''} onClick={()=>go(item.view)}><item.icon size={21}/><span>{t(item.label)}</span></button>)}<button onClick={()=>go('rituals')}><Sun size={21}/>{t('Daily rituals')}</button></nav>
       <div className="recent-section"><span className="eyebrow">{t('RECENT CONVERSATIONS')}</span>{sessions.slice(0,12).map(session=><button key={session.id} className={`recent-item ${session.id===activeId&&view==='chat'?'selected':''}`} onClick={()=>openSession(session)}><MessageCircle size={16}/><span>{session.title}</span>{loadingIds.has(session.id)&&<LoaderCircle className="spin" size={14}/>}</button>)}</div>
-      <div className="sidebar-bottom"><button className="install-button" onClick={()=>void install()}><Download size={18}/>{t('Add to home screen')}<ChevronRight size={17}/></button><button className="profile-button" onClick={openSettings}><ProfileAvatar profile={profile} size={42}/><span>{profile.name||t('Your personal space')}<small>{t('Profile & settings')}</small></span><Settings2 size={18}/></button></div>
+      <div className="sidebar-bottom"><a className="commerce-nav-link" href="#pricing" onClick={onLeaveReader}><Wallet size={18}/>{language==='vi'?'Bảng giá & đơn của bạn':'Pricing & your orders'}</a><a className="commerce-nav-link" href="#support" onClick={onLeaveReader}><Heart size={18}/>{language==='vi'?'Ủng hộ Eva':'Support Eva'}</a><a className="commerce-nav-link" href="#welcome" onClick={onLeaveReader}><Globe size={18}/>{language==='vi'?'Khám phá Eva Tarot':'Explore Eva Tarot'}</a><button className="install-button" onClick={()=>void install()}><Download size={18}/>{t('Add to home screen')}<ChevronRight size={17}/></button><button className="profile-button" onClick={openSettings}><ProfileAvatar profile={profile} size={42}/><span>{profile.name||t('Your personal space')}<small>{t('Profile & settings')}</small></span><Settings2 size={18}/></button></div>
     </aside>
     <main className="main-shell">
       <header className="topbar conversation-topbar">
@@ -340,7 +353,7 @@ export default function App() {
           {view==='home'?<button className="home-brand-button" onClick={newChat} aria-label={t('Eva Tarot home')}><Brand compact/></button>:view==='chat'||view==='learn'||view==='rituals'?<button className="icon-button" onClick={newChat} aria-label={t('Back to chat')}><ArrowLeft size={22}/></button>:<button className="header-avatar" onClick={openSettings} aria-label={t('Your profile and settings')}><ProfileAvatar profile={profile} size={42}/></button>}
           <div className={`header-greeting ${view==='home'?'home-greeting':''}`}><strong>{view==='home'?(profile.name?t('Hi, {name}',{name:profile.name}):t('Your daily space')):pageTitle}</strong><span>{!online&&`${t('Offline reflection')} · `}{saveLabel}</span></div>
         </div>
-        <div className="topbar-right"><button className="icon-button" onClick={()=>setModal('language')} aria-label={t('Language')} title={t('Language')}><Globe size={20}/></button><button className="icon-button" onClick={()=>setModal('about')} aria-label={t('How Eva Tarot works')}><HelpCircle size={20}/></button>{view==='home'&&<button className="header-avatar home-profile" onClick={openSettings} aria-label={t('Your profile and settings')}><ProfileAvatar profile={profile} size={38}/></button>}</div>
+        <div className="topbar-right"><a className="reading-pricing-link" href="#pricing" onClick={onLeaveReader} aria-label={language==='vi'?'Bảng giá và đơn của bạn':'Pricing and your orders'}><Wallet size={20}/></a><button className="icon-button" onClick={()=>setModal('language')} aria-label={t('Language')} title={t('Language')}><Globe size={20}/></button><button className="icon-button" onClick={()=>setModal('about')} aria-label={t('How Eva Tarot works')}><HelpCircle size={20}/></button>{view==='home'&&<button className="header-avatar home-profile" onClick={openSettings} aria-label={t('Your profile and settings')}><ProfileAvatar profile={profile} size={38}/></button>}</div>
       </header>
       <DomainTransfer saved={data.isCurrentDataSaved} data={{profile,sessions,practiceDays,dayNotes}} language={language} onImport={async imported=>{await data.restoreData(imported);await data.flush();if(imported.language)setLanguage(imported.language as typeof language);newChat();}}/>
       {data.limitedStorage&&<p className="limited-storage-note">{t('This browser has limited storage. Export a backup regularly to keep your data safe.')}</p>}
@@ -369,7 +382,7 @@ export default function App() {
           {phase==='picking'&&<><CardDeck key={current.id} onShuffle={()=>{setDeck(drawCards(78));setSelected([]);}} onCountChange={count=>{setSelected([]);updateSession(current.id,session=>({...session,drawCount:count}));}} count={current.drawCount||3} deck={deck} selected={selected} onSelect={index=>setSelected(previous=>previous.includes(index)?previous.filter(value=>value!==index):previous.length<(current.drawCount||3)?[...previous,index]:previous)} onReveal={()=>reveal()} onAuto={()=>reveal(Array.from({length:current.drawCount||3},(_,i)=>i))}/><button className="text-button cancel-draw" onClick={cancelDraw}>{t('Keep chatting without a new draw')}</button></>}
           {generating&&streamed&&<article className="message message-assistant streaming-response"><span className="assistant-avatar"><Logo size={29}/></span><div className="message-body"><div className="message-author">Eva Tarot<span>{t('On-device AI')}</span></div><Paragraphs text={streamed}/></div></article>}
           {generating&&<div className="typing-indicator" role="status"><Logo size={28}/><span>{t(activeDraw.length?'Reflecting on your cards…':'Eva Tarot is thinking…')}</span><span className="typing-dots"><i/><i/><i/></span><button className="stop-reading" onClick={()=>replyControllers.current.get(current.id)?.abort()}><Square size={13}/>{t('Stop')}</button></div>}
-          {error&&<div className="error-panel" role="alert"><p>{error}</p><button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>void generate(current,activeDraw,latestQuestion(current))}><RefreshCw size={16}/>{t('Try again')}</button>{readerMode==='local'&&<button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>{pendingAI.current={session:current,drawn:activeDraw,question:latestQuestion(current)};chooseReader('online');}}>{t('Use Online AI')}</button>}</div>}
+          {error&&<div className="error-panel" role="alert"><p>{error}</p><a className="commerce-nav-link" href="#pricing" onClick={onLeaveReader}><Wallet size={16}/>{language==='vi'?'Xem bảng giá & kiểm tra lượt còn lại':'View pricing & check credits'}</a><button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>void generate(current,activeDraw,latestQuestion(current))}><RefreshCw size={16}/>{t('Try again')}</button>{readerMode==='local'&&<button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>{pendingAI.current={session:current,drawn:activeDraw,question:latestQuestion(current)};chooseReader('online');}}>{t('Use Online AI')}</button>}</div>}
           {!generating&&!error&&data.isCurrentDataSaved&&current.messages.some(message=>message.mode)&&<div className="conversation-saved"><Check size={14}/>{t('Conversation saved automatically')}</div>}
         </div>}
         {view==='journal'&&<div className="library-content history-content screen-enter"><div className="page-intro"><span className="eyebrow">{t('YOUR STORY, KEPT HERE')}</span><h1>{t('All your conversations.')}</h1><p>{t('Every conversation is saved. Come back whenever you like.')}</p></div><div className="history-tools"><label className="history-search"><Search size={18}/><input aria-label={t('Search conversations')} placeholder={t('Search conversations')} value={search} onChange={event=>setSearch(event.target.value)}/></label><button className={savedOnly?'selected':''} aria-pressed={savedOnly} onClick={()=>setSavedOnly(value=>!value)}><Bookmark size={17}/>{t('Bookmarks')}</button></div><div className="journal-list">{shownSessions.map(session=><article className="journal-entry" key={session.id}><div className="journal-text"><span className="eyebrow">{formatDate(new Date(session.date),{year:'numeric',month:'short',day:'numeric'})} · {t(session.drawCount===10?'In-depth reading':session.drawCount===0?'Chat':'Tarot')}</span><h2>{session.title}</h2><button className="text-button history-edit" onClick={()=>setEditing({session,messageId:session.messages.find(message=>message.role==='user')?.id||''})}><Pencil size={16}/>{t('Edit reading')}</button><button className="text-button" onClick={()=>openSession(session)}>{t('Continue conversation')}<ArrowRight size={16}/></button><label className="note-label" htmlFor={`note-${session.id}`}>{t('A note to your future self')}</label><textarea id={`note-${session.id}`} value={session.note} maxLength={1200} placeholder={t('What stayed with you?')} onChange={event=>updateSession(session.id,value=>({...value,note:event.target.value}))}/></div><button className={`icon-button ${session.saved?'saved':''}`} aria-label={t(session.saved?'Remove from saved conversations':'Save conversation')} onClick={()=>updateSession(session.id,value=>({...value,saved:!value.saved}))}><Bookmark size={20} fill={session.saved?'currentColor':'none'}/></button></article>)}</div>{!shownSessions.length&&<div className="empty-state"><MessageCircle size={38}/><h2>{t(search?'No conversations found.':savedOnly?'No bookmarks yet.':'Your story starts here.')}</h2><button className="primary-button" onClick={newChat}>{t('Start a conversation')}<ArrowRight size={18}/></button></div>}<CloudAccount cloud={cloud}/></div>}
@@ -384,6 +397,7 @@ export default function App() {
             <div className="composer-send-actions"><VoiceInput key={`${voiceContext}:${language}`} disabled={busy} onTranscript={text=>{setInput(previous=>`${previous}${previous?' ':''}${text}`.slice(0,1000));textareaRef.current?.focus();}} onMessage={setVoiceMessage}/><button className="send-button" type="submit" disabled={!input.trim()||busy} aria-label={t('Send message')}>{busy?<LoaderCircle className="spin" size={23}/>:<ArrowRight size={23}/>}</button></div>
           </div>
         </form>
+        {paidReplies&&readerMode==='online'&&<p className="voice-feedback"><a href="#pricing" onClick={onLeaveReader}>{language==='vi'?'Mỗi câu trả lời hoàn tất dùng 1 lượt, kể cả câu hỏi tiếp theo. Xem ví & bảng giá.':'Each completed reply uses 1 credit, including follow-ups. View wallet & pricing.'}</a></p>}
         {voiceMessage&&<p className="voice-feedback" role="status">{voiceMessage}</p>}
         <div className="composer-caption"><button type="button" disabled={loadingIds.size>0} onClick={()=>{pendingAI.current=null;setShowReaderOptions(true);}}>{t(readerMode==='online'?'Online AI · messages sent for replies':'On-device AI · messages stay here')}<ChevronRight size={12}/></button><span>{saveLabel}</span></div>
       </footer>}

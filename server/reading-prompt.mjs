@@ -63,7 +63,13 @@ export function buildHostedReadingPrompt(input) {
   ].filter(Boolean).join('\n\n');
   return {
     instructions,
-    messages: [...history, { role: 'user', content: JSON.stringify({ focus: input.focus, question: input.question }) }],
+    // Keep app metadata separate so the latest turn reads like the person's
+    // actual message. Both fields stay in untrusted user-role content.
+    messages: [
+      ...history,
+      { role: 'user', content: `Reading focus selected in the app: ${input.focus}` },
+      { role: 'user', content: input.question },
+    ],
     maxTokens: continuation ? 5_000 : input.followUp ? 2_000 : input.selectedCards.length === 10 ? 5_000 : input.selectedCards.length === 5 ? 3_500 : input.selectedCards.length === 3 ? 2_600 : 1_800,
   };
 }

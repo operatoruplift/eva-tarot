@@ -123,7 +123,7 @@ test('gateway key uses chat completions with trusted cards and the requested con
   assert.match(captured.body.messages[0].content, /The Magician/);
   assert.match(captured.body.messages[0].content, /Strength/);
   assert.equal(captured.body.messages[1].content, 'My earlier question');
-  assert.equal(JSON.parse(captured.body.messages.at(-1).content).question, reading.question);
+  assert.equal(captured.body.messages.at(-1).content, reading.question);
   assert.ok(captured.options.signal instanceof AbortSignal);
 });
 
@@ -328,8 +328,45 @@ test('follow-ups retain the user correction once and do not request another full
   assert.doesNotMatch(instructions, /Give a complete 3-card reading/);
   assert.equal(captured.messages.filter(message => message.content.includes(question)).length, 1);
   assert.equal(captured.messages[1].content, 'I recently moved to a new city.');
-  assert.equal(JSON.parse(captured.messages.at(-1).content).question, question);
+  assert.equal(captured.messages.at(-1).content, question);
   assert.equal(captured.max_tokens, 2_000);
+});
+
+test('both providers preserve the human question, corrections and limits outside privileged instructions', async () => {
+  const question = 'Actually, I feel tired, not anxious. Tomorrow I have 15 minutes TOTAL, including setup and cleanup. I only have paper and a pencil; my budget is 0₫. What can I draw?\nPlease explain “getting started” simply.';
+  const focus = 'MY_SELECTED_TOPIC: creative time';
+  const history = [
+    { role: 'user', content: 'I work an evening shift and want to try drawing again.' },
+    { role: 'assistant', content: 'Maybe you are anxious about making mistakes.' },
+    { role: 'user', content: `  ${question}  ` },
+  ];
+  const requestBody = { ...reading, question, focus, followUp: true, history };
+  const before = structuredClone(requestBody);
+  const transports = [];
+  for (const credentials of [{ gatewayApiKey: 'test-gateway-key' }, { apiKey: 'test-direct-key' }]) {
+    let captured;
+    const response = await invoke(handler({ ...credentials, fetchImpl: async (_url, options) => {
+      captured = JSON.parse(options.body);
+      return Response.json(credentials.apiKey
+        ? { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'A grounded explanation.' }] }] }
+        : gatewayResult);
+    } }), { body: requestBody });
+    assert.equal(response.status, 200);
+    const instructions = captured.instructions ?? captured.messages[0].content;
+    const messages = captured.input ?? captured.messages.slice(1);
+    assert.ok(!instructions.includes(question));
+    assert.ok(!instructions.includes(focus));
+    assert.ok(!instructions.includes(history[0].content));
+    assert.ok(!instructions.includes(history[1].content));
+    assert.deepEqual(messages.slice(0, 2), history.slice(0, 2));
+    assert.deepEqual(messages.at(-1), { role: 'user', content: question });
+    assert.equal(messages.filter(message => message.content === question).length, 1);
+    const topic = messages.find(message => message.content.includes(focus));
+    assert.equal(topic.role, 'user');
+    transports.push(messages);
+  }
+  assert.deepEqual(transports[0], transports[1]);
+  assert.deepEqual(requestBody, before);
 });
 
 test('explicit and natural-language continuation finish an answer instead of starting over', async () => {
@@ -393,5 +430,5 @@ test('upstream timeout stays inside the deployed function window and returns a r
 test('legacy page rewrites recover reading links without catching API or asset routes', async () => {
   const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
   assert.ok(config.rewrites.some(rule => rule.source === '/reading/:path*' && rule.destination === '/index.html'));
-  assert.deepEqual(config.rewrites.map(rule => rule.source).sort(), ['/reading', '/reading/:path*', '/chat', '/calendar', '/journal', '/breathe', '/cards', '/rituals'].sort());
+  assert.deepEqual(config.rewrites.map(rule => rule.source).sort(), ['/admin', '/pricing', '/support', '/donate', '/reading', '/reading/:path*', '/chat', '/calendar', '/journal', '/breathe', '/cards', '/rituals'].sort());
 });
