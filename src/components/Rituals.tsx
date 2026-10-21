@@ -39,6 +39,7 @@ export function WeekStrip({ days }: { days: string[] }) {
 
 type HomeProps = {
   hasDaily: boolean;
+  dailyCostLabel?: string;
   days: string[];
   onDaily: () => void;
   onRead: () => void;
@@ -47,7 +48,7 @@ type HomeProps = {
   onTopic: (topic: typeof topics[number]) => void;
 };
 
-export function TodayScreen({ hasDaily, days, onDaily, onRead, onBreathe, onExplore, onTopic }: HomeProps) {
+export function TodayScreen({ hasDaily, dailyCostLabel, days, onDaily, onRead, onBreathe, onExplore, onTopic }: HomeProps) {
   const { t } = useLanguage();
   return (
     <div className="home-content screen-enter">
@@ -57,6 +58,7 @@ export function TodayScreen({ hasDaily, days, onDaily, onRead, onBreathe, onExpl
           <div className="daily-eyebrow"><Sun size={16} /> {t("YOUR DAILY RITUAL")}</div>
           <h1 id="daily-title">{t("A little clarity.")}<br /><em>{t("A lighter day.")}</em></h1>
           <p>{t("Pause, pick a card, and see")}<br />{t("what opens up for you.")}</p>
+          {dailyCostLabel&&<p className="daily-credit-note">{dailyCostLabel}</p>}
           <button className="primary-button" onClick={onDaily}>{t(hasDaily ? 'Revisit my card' : 'Draw my daily card')}<ArrowRight size={18} /></button>
           <span className="ritual-time">{t("One card · 2 minutes · Just for you")}</span>
         </div>

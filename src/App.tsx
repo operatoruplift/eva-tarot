@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Bookmark, Check, ChevronRight, Compass, Download, Heart, HelpCircle, MessageCircle, Plus, RefreshCw, Settings2, Sparkles, Sun, Wind, X, CalendarDays, Search, Globe, Upload, LoaderCircle, Pencil, Square, ShieldCheck, Wallet } from 'lucide-react';
 import { Brand, Logo } from './components/Brand';
 import { Modal } from './components/Modal';
+import { CreditPaywall } from './components/CreditPaywall';
 import { SoftSelect } from './components/SoftSelect';
 import { BreathingPractice } from './components/BreathingPractice';
 import { CardBack, CardDeck, DrawnCards } from './components/TarotCards';
@@ -35,7 +36,8 @@ import { EditReading } from './components/EditReading';
 import { DomainTransfer } from './components/DomainTransfer';
 import { localDay } from './lib/storage';
 import type { Session } from './lib/storage';
-import { commerceRequest, type CommerceCatalog } from './lib/commerce';
+import { commerceRequest, getWallet, type CommerceCatalog } from './lib/commerce';
+import { createCreditRefresh, emptyCreditSnapshot, requiresReadingCredits, usesOnlineCredits } from './lib/credit-ui';
 import { siteSurface } from './lib/site-routes';
 
 type View = AppView | 'missing';
@@ -84,7 +86,13 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
   const [toast,setToast] = useState('');
   const [ai,setAI] = useState(getLocalAIState);
   const [readerMode,setReaderMode] = useState<ReaderMode>('online');
-  const [paidReplies,setPaidReplies] = useState(false);
+  const [creditState,setCreditState] = useState(emptyCreditSnapshot);
+  const creditRefresh = useRef<ReturnType<typeof createCreditRefresh>|null>(null);
+  const [creditErrors,setCreditErrors] = useState<Set<string>>(new Set());
+  const [paywallSession,setPaywallSession] = useState<string|null>(null);
+  const paidReplies = usesOnlineCredits(creditState.catalog);
+  const activeReader = useRef({activeId,view});
+  activeReader.current={activeId,view};
   const [showReaderOptions,setShowReaderOptions] = useState(false);
   const [showOnlineDisclosure,setShowOnlineDisclosure] = useState(false);
   const [initialOnlineApproval] = useState(() => { try { return readOnlineApproval(window.localStorage); } catch { return readOnlineApproval(); } });
@@ -125,12 +133,19 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
   });
 
   useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),5000);return()=>clearTimeout(timer);},[toast]);
+  useEffect(()=>{setPaywallSession(previous=>view==='chat'&&previous===activeId?previous:null);},[activeId,view]);
   useEffect(()=>{
     const controller = new AbortController();
-    const refresh = () => { void commerceRequest<{catalog:CommerceCatalog}>('catalog', {}, {signal:controller.signal})
-      .then(result=>setPaidReplies(['paid','free_trial'].includes(result.catalog?.settings?.pricing_mode || ''))).catch(()=>{}); };
-    refresh(); window.addEventListener('focus',refresh);
-    return()=>{controller.abort();window.removeEventListener('focus',refresh);};
+    const coordinator = createCreditRefresh({
+      loadCatalog:async()=>{const result=await commerceRequest<{catalog:CommerceCatalog}>('catalog',{}, {signal:controller.signal});if(!result.catalog?.settings||!Array.isArray(result.catalog.products))throw new Error('Unreadable pricing policy');return result.catalog;},
+      loadWallet:async()=>(await getWallet(controller.signal)).wallet,
+      onUpdate:setCreditState,
+    });
+    creditRefresh.current=coordinator;
+    const refresh=()=>{if(!document.hidden&&siteSurface(location.hash,location.pathname)==='app')void coordinator.refresh();};
+    const routeChanged=()=>{if(siteSurface(location.hash,location.pathname)!=='app')setPaywallSession(null);else refresh();};
+    refresh();window.addEventListener('focus',refresh);window.addEventListener('online',refresh);document.addEventListener('visibilitychange',refresh);window.addEventListener('hashchange',routeChanged);window.addEventListener('popstate',routeChanged);
+    return()=>{coordinator.dispose();controller.abort();creditRefresh.current=null;window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);document.removeEventListener('visibilitychange',refresh);window.removeEventListener('hashchange',routeChanged);window.removeEventListener('popstate',routeChanged);};
   },[]);
 
   useEffect(()=>{
@@ -178,6 +193,8 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
     }
     const controller=new AbortController();replyControllers.current.set(session.id,controller);
     inFlight.current.add(session.id);setLoadingIds(new Set(inFlight.current));setErrors(previous=>{const next={...previous};delete next[session.id];return next;});
+    setCreditErrors(previous=>{const next=new Set(previous);next.delete(session.id);return next;});
+    setPaywallSession(previous=>previous===session.id?null:previous);
     setStreaming(previous=>({...previous,[session.id]:''}));
     try{
       await waitForReaderSave(data.flush,controller.signal);
@@ -188,8 +205,14 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
         updateSession(session.id,entry=>({...entry,messages:[...entry.messages,{id:uid(),createdAt:new Date().toISOString(),role:'assistant',text,mode:mode==='online'?'ai':'local'}]}));
         // Persistence owns save failures and retries; do not regenerate this answer.
       }
-    }catch(cause){setErrors(previous=>({...previous,[session.id]:cause instanceof DOMException&&cause.name==='AbortError'?t('Reply stopped. Your question is still in this chat.'):cause instanceof Error?t(cause.message):t('Your reading could not be completed. Please try again.')}));}
-    finally{replyControllers.current.delete(session.id);inFlight.current.delete(session.id);setLoadingIds(new Set(inFlight.current));setStreaming(previous=>{const next={...previous};delete next[session.id];return next;});}
+    }catch(cause){
+      if(mode==='online'&&requiresReadingCredits(cause)){
+        setCreditErrors(previous=>new Set(previous).add(session.id));
+        if(activeReader.current.activeId===session.id&&activeReader.current.view==='chat'&&siteSurface(location.hash,location.pathname)==='app')setPaywallSession(session.id);
+        setErrors(previous=>({...previous,[session.id]:language==='vi'?'Bạn cần thêm lượt để Eva trả lời tiếp. Câu hỏi và lá bài vẫn ở đây.':'You need another credit for Eva to reply. Your question and cards are still here.'}));
+      }else setErrors(previous=>({...previous,[session.id]:cause instanceof DOMException&&cause.name==='AbortError'?t('Reply stopped. Your question is still in this chat.'):cause instanceof Error?t(cause.message):t('Your reading could not be completed. Please try again.')}));
+    }
+    finally{replyControllers.current.delete(session.id);inFlight.current.delete(session.id);setLoadingIds(new Set(inFlight.current));setStreaming(previous=>{const next={...previous};delete next[session.id];return next;});if(mode==='online'&&!document.hidden&&siteSurface(location.hash,location.pathname)==='app')void creditRefresh.current?.refresh(true);}
   }
   function confirmOnline(){
     const pending=pendingAI.current;if(!pending){setShowOnlineDisclosure(false);return;}
@@ -334,6 +357,7 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
   const translatedDetail=detail&&language==='vi'?{...detail,...tarotVi[detail.id]}:detail;
   const showComposer=view==='home'||(view==='chat'&&phase==='idle');
   const saveLabel=t(data.status==='error'?'Saving needs attention':data.isCurrentDataSaved?'Saved on this device':'Saving…');
+  const dailyCostLabel=dailySession?(language==='vi'?'Xem lại lá bài đã lưu · không tạo câu trả lời mới':'Revisit your saved card · no new AI reply'):readerMode==='local'?(language==='vi'?'AI trên thiết bị · không dùng lượt Online AI':'On-device AI · no online credits used'):paidReplies?(language==='vi'?'Online AI · 1 lượt cho câu trả lời hoàn tất':'Online AI · 1 credit per completed reply'):(language==='vi'?'Xem ví & bảng giá trước khi dùng Online AI':'Check wallet & pricing before using Online AI');
   if(!ready)return <main className="loading-app" role="status"><Logo size={64}/><p>{t('Opening your saved space…')}</p></main>;
 
   if(data.needsRecovery)return <main className="loading-app recovery-app"><Logo size={64}/><h1>{t('Your saved space needs a moment.')}</h1><p role="alert">{t('Your journal could not be opened. Eva has paused here instead of starting with an empty history.')}</p><p>{t('Eva has not replaced your saved history. Close other Eva tabs, then try again.')}</p><button className="primary-button" disabled={data.status==='loading'} onClick={()=>data.retrySave()}>{data.status==='loading'?<LoaderCircle className="spin" size={18}/>:<RefreshCw size={18}/>} {t('Try opening my saved space again')}</button>{(sessions.length>0||profile.name||profile.avatar||practiceDays.length>0||Object.keys(dayNotes).length>0)&&<button className="secondary-button" onClick={exportData}>{t('Export available data')}</button>}</main>;
@@ -371,10 +395,10 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
             ['Work & decisions','I’m torn between staying in my job and trying something new.','Find my direction'],
             ['Just talk','I feel stuck lately. Can we talk through what’s going on?','A moment for me']
           ].map(([label,prompt,caption],index)=><button className={`question-example example-${index}`} key={label} onClick={()=>{setInput(t(prompt));setSpread(label==='Just talk'?0:-1);textareaRef.current?.focus();}}><span className="example-icon" aria-hidden="true">{index===0?<Heart size={20}/>:index===1?<Compass size={20}/>:<MessageCircle size={20}/>}</span><span className="example-copy"><span>{t(label)}</span><strong>{t(caption)}</strong></span><ArrowRight size={17}/></button>)}</div>
-          <div className="home-quick-actions"><button onClick={daily}><span className="quick-action-icon"><Sun size={20}/></span><span>{t(dailySession?'Revisit my card':'Daily card')}<small>{t('A little ritual for today')}</small></span><ArrowRight size={16}/></button><button onClick={()=>go('learn')}><span className="quick-action-icon"><Compass size={20}/></span><span>{t('Explore 78 cards')}<small>{t('Get to know your deck')}</small></span><ArrowRight size={16}/></button></div>
+          <div className="home-quick-actions"><button onClick={daily}><span className="quick-action-icon"><Sun size={20}/></span><span>{t(dailySession?'Revisit my card':'Daily card')}<small>{dailyCostLabel}</small></span><ArrowRight size={16}/></button><button onClick={()=>go('learn')}><span className="quick-action-icon"><Compass size={20}/></span><span>{t('Explore 78 cards')}<small>{t('Get to know your deck')}</small></span><ArrowRight size={16}/></button></div>
           <button className="private-ai-status ready" onClick={()=>{pendingAI.current=null;setShowReaderOptions(true);}}><MessageCircle size={15}/>{t(readerMode==='online'?'Online AI · no download needed':'On-device AI · experimental')}<ChevronRight size={15}/></button>
         </section>}
-        {view==='rituals'&&<TodayScreen hasDaily={!!dailySession} days={completedDays} onDaily={daily} onRead={newChat} onBreathe={()=>go('breathe')} onExplore={()=>go('learn')} onTopic={chooseTopic}/>}
+        {view==='rituals'&&<TodayScreen hasDaily={!!dailySession} dailyCostLabel={dailyCostLabel} days={completedDays} onDaily={daily} onRead={newChat} onBreathe={()=>go('breathe')} onExplore={()=>go('learn')} onTopic={chooseTopic}/>}
         {view==='calendar'&&<Calendar sessions={sessions} practiceDays={practiceDays} notes={dayNotes} saveStatus={saveLabel} onNoteChange={(key,note)=>setDayNotes(previous=>({...previous,[key]:note}))} onOpenSession={session=>openSession(session)} onRead={newChat}/>}
         {view==='breathe'&&<BreathingPractice onHome={newChat} onComplete={()=>{setPracticeDays(previous=>[...new Set([...previous,localDay()])]);setToast(t('One gentle moment, made for you.'));}}/>}
         {view==='chat'&&current&&<div className="chat-content screen-enter"><div className="reading-heading"><button className="icon-button" disabled={generating} aria-label={t('Edit reading')} onClick={()=>setEditing({session:current,messageId:current.messages.find(message=>message.role==='user')?.id||''})}><Pencil size={18}/></button><span>{t(current.drawCount===10?'10-card Celtic Cross':current.drawCount===0?'Conversation':current.focus)}</span><small>{formatDate(new Date(current.date),{month:'short',day:'numeric'})}</small><button className={`icon-button ${current.saved?'saved':''}`} onClick={saveReading} aria-label={t(current.saved?'Remove from saved conversations':'Save conversation')}><Bookmark size={20} fill={current.saved?'currentColor':'none'}/></button></div>{current.revisedFrom&&<p className="revision-notice">{t('Revised reading')} · <button onClick={()=>{const original=sessions.find(session=>session.id===current.revisedFrom);if(original)openSession(original);}}>{t('View original')}</button></p>}{current.messages.map(message=><article className={`message message-${message.role}`} key={message.id}>{message.role==='assistant'&&<span className="assistant-avatar"><Logo size={29}/></span>}<div className="message-body">{message.role==='assistant'&&<div className="message-author">Eva Tarot{message.mode&&<span>{t(message.mode==='local'?'On-device AI':message.mode==='demo'?'Card reference · not AI':'AI reflection')}</span>}</div>}<Paragraphs text={message.text}/>{message.mode==='demo'&&<ReferenceContextAction disabled={generating||phase!=='idle'} onPersonalize={()=>void generate(current,activeDraw,[...current.messages].reverse().find(entry=>entry.role==='user')?.text||current.title)}/>} {message.role==='user'&&<button className="edit-question-button" disabled={generating} onClick={()=>setEditing({session:current,messageId:message.id})}><Pencil size={13}/>{t('Edit question')}</button>}{message.cards&&<DrawnCards cards={message.cards} onDetail={setDetail}/>}</div></article>)}
@@ -382,7 +406,7 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
           {phase==='picking'&&<><CardDeck key={current.id} onShuffle={()=>{setDeck(drawCards(78));setSelected([]);}} onCountChange={count=>{setSelected([]);updateSession(current.id,session=>({...session,drawCount:count}));}} count={current.drawCount||3} deck={deck} selected={selected} onSelect={index=>setSelected(previous=>previous.includes(index)?previous.filter(value=>value!==index):previous.length<(current.drawCount||3)?[...previous,index]:previous)} onReveal={()=>reveal()} onAuto={()=>reveal(Array.from({length:current.drawCount||3},(_,i)=>i))}/><button className="text-button cancel-draw" onClick={cancelDraw}>{t('Keep chatting without a new draw')}</button></>}
           {generating&&streamed&&<article className="message message-assistant streaming-response"><span className="assistant-avatar"><Logo size={29}/></span><div className="message-body"><div className="message-author">Eva Tarot<span>{t('On-device AI')}</span></div><Paragraphs text={streamed}/></div></article>}
           {generating&&<div className="typing-indicator" role="status"><Logo size={28}/><span>{t(activeDraw.length?'Reflecting on your cards…':'Eva Tarot is thinking…')}</span><span className="typing-dots"><i/><i/><i/></span><button className="stop-reading" onClick={()=>replyControllers.current.get(current.id)?.abort()}><Square size={13}/>{t('Stop')}</button></div>}
-          {error&&<div className="error-panel" role="alert"><p>{error}</p><a className="commerce-nav-link" href="#pricing" onClick={onLeaveReader}><Wallet size={16}/>{language==='vi'?'Xem bảng giá & kiểm tra lượt còn lại':'View pricing & check credits'}</a><button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>void generate(current,activeDraw,latestQuestion(current))}><RefreshCw size={16}/>{t('Try again')}</button>{readerMode==='local'&&<button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>{pendingAI.current={session:current,drawn:activeDraw,question:latestQuestion(current)};chooseReader('online');}}>{t('Use Online AI')}</button>}</div>}
+          {error&&<div className="error-panel" role="alert"><p>{error}</p><div className="credit-error-actions">{creditErrors.has(current.id)&&<button className="text-button" onClick={()=>setPaywallSession(current.id)}><Wallet size={16}/>{language==='vi'?'Xem các gói lượt':'View credit packages'}</button>}<button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>void generate(current,activeDraw,latestQuestion(current))}><RefreshCw size={16}/>{t('Try again')}</button>{readerMode==='local'&&<button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>{pendingAI.current={session:current,drawn:activeDraw,question:latestQuestion(current)};chooseReader('online');}}>{t('Use Online AI')}</button>}</div></div>}
           {!generating&&!error&&data.isCurrentDataSaved&&current.messages.some(message=>message.mode)&&<div className="conversation-saved"><Check size={14}/>{t('Conversation saved automatically')}</div>}
         </div>}
         {view==='journal'&&<div className="library-content history-content screen-enter"><div className="page-intro"><span className="eyebrow">{t('YOUR STORY, KEPT HERE')}</span><h1>{t('All your conversations.')}</h1><p>{t('Every conversation is saved. Come back whenever you like.')}</p></div><div className="history-tools"><label className="history-search"><Search size={18}/><input aria-label={t('Search conversations')} placeholder={t('Search conversations')} value={search} onChange={event=>setSearch(event.target.value)}/></label><button className={savedOnly?'selected':''} aria-pressed={savedOnly} onClick={()=>setSavedOnly(value=>!value)}><Bookmark size={17}/>{t('Bookmarks')}</button></div><div className="journal-list">{shownSessions.map(session=><article className="journal-entry" key={session.id}><div className="journal-text"><span className="eyebrow">{formatDate(new Date(session.date),{year:'numeric',month:'short',day:'numeric'})} · {t(session.drawCount===10?'In-depth reading':session.drawCount===0?'Chat':'Tarot')}</span><h2>{session.title}</h2><button className="text-button history-edit" onClick={()=>setEditing({session,messageId:session.messages.find(message=>message.role==='user')?.id||''})}><Pencil size={16}/>{t('Edit reading')}</button><button className="text-button" onClick={()=>openSession(session)}>{t('Continue conversation')}<ArrowRight size={16}/></button><label className="note-label" htmlFor={`note-${session.id}`}>{t('A note to your future self')}</label><textarea id={`note-${session.id}`} value={session.note} maxLength={1200} placeholder={t('What stayed with you?')} onChange={event=>updateSession(session.id,value=>({...value,note:event.target.value}))}/></div><button className={`icon-button ${session.saved?'saved':''}`} aria-label={t(session.saved?'Remove from saved conversations':'Save conversation')} onClick={()=>updateSession(session.id,value=>({...value,saved:!value.saved}))}><Bookmark size={20} fill={session.saved?'currentColor':'none'}/></button></article>)}</div>{!shownSessions.length&&<div className="empty-state"><MessageCircle size={38}/><h2>{t(search?'No conversations found.':savedOnly?'No bookmarks yet.':'Your story starts here.')}</h2><button className="primary-button" onClick={newChat}>{t('Start a conversation')}<ArrowRight size={18}/></button></div>}<CloudAccount cloud={cloud}/></div>}
@@ -397,7 +421,7 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
             <div className="composer-send-actions"><VoiceInput key={`${voiceContext}:${language}`} disabled={busy} onTranscript={text=>{setInput(previous=>`${previous}${previous?' ':''}${text}`.slice(0,1000));textareaRef.current?.focus();}} onMessage={setVoiceMessage}/><button className="send-button" type="submit" disabled={!input.trim()||busy} aria-label={t('Send message')}>{busy?<LoaderCircle className="spin" size={23}/>:<ArrowRight size={23}/>}</button></div>
           </div>
         </form>
-        {paidReplies&&readerMode==='online'&&<p className="voice-feedback"><a href="#pricing" onClick={onLeaveReader}>{language==='vi'?'Mỗi câu trả lời hoàn tất dùng 1 lượt, kể cả câu hỏi tiếp theo. Xem ví & bảng giá.':'Each completed reply uses 1 credit, including follow-ups. View wallet & pricing.'}</a></p>}
+        <div className="credit-composer-note"><span>{readerMode==='local'?(language==='vi'?'AI trên thiết bị không dùng lượt Online AI.':'On-device AI does not use online credits.'):paidReplies?(language==='vi'?'1 câu trả lời hoàn tất = 1 lượt, kể cả câu hỏi tiếp theo.':'1 completed reply = 1 credit, including follow-ups.'):(language==='vi'?'Kiểm tra chính sách và số lượt trong ví trước khi gửi.':'Check your wallet for the current policy and credit balance.')}</span><a href="#pricing" onClick={onLeaveReader}><Wallet size={14}/>{readerMode==='online'&&paidReplies&&creditState.wallet&&!creditState.unavailable?(language==='vi'?`${creditState.wallet.credits} lượt còn lại`:`${creditState.wallet.credits} ${creditState.wallet.credits===1?'credit':'credits'} left`):creditState.unavailable?(language==='vi'?'Ví tạm thời không truy cập được':'Wallet currently unavailable'):(language==='vi'?'Ví & bảng giá':'Wallet & pricing')}</a>{creditState.unavailable&&<button className="credit-wallet-retry" type="button" disabled={creditState.loading} onClick={()=>void creditRefresh.current?.refresh()}>{language==='vi'?'Kiểm tra lại ví':'Refresh wallet'}</button>}</div>
         {voiceMessage&&<p className="voice-feedback" role="status">{voiceMessage}</p>}
         <div className="composer-caption"><button type="button" disabled={loadingIds.size>0} onClick={()=>{pendingAI.current=null;setShowReaderOptions(true);}}>{t(readerMode==='online'?'Online AI · messages sent for replies':'On-device AI · messages stay here')}<ChevronRight size={12}/></button><span>{saveLabel}</span></div>
       </footer>}
@@ -410,6 +434,7 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
     {showAI&&<LocalAISetup state={ai} preparing={preparingAI} startupError={aiStartupError} onEnable={()=>void enableAI()} onCancel={cancelReaderSetup} onClose={closeReaderSetup} onExplore={exploreFromSetup} onOnline={()=>chooseReader('online')} onReference={pendingAI.current?.drawn.length?showReference:undefined}/>}
     {showReaderOptions&&<ReaderOptions mode={readerMode} onChoose={chooseReader} onClose={()=>setShowReaderOptions(false)}/>}
     {showOnlineDisclosure&&<OnlineDisclosure onContinue={confirmOnline} onClose={closeOnlineDisclosure}/>}
+    {paywallSession&&view==='chat'&&current?.id===paywallSession&&<CreditPaywall catalog={creditState.catalog} loading={creditState.loading} unavailable={creditState.unavailable} onClose={()=>setPaywallSession(null)} onPricing={()=>{setPaywallSession(null);onLeaveReader?.();}}/>}
     {modal==='language'&&<Modal title={t('Choose your language')} onClose={()=>setModal(null)}><div className="language-chooser"><Globe size={26}/><h2>{t('Choose your language')}</h2><p>{t('English and Vietnamese are fully supported. Other languages include translated core controls.')}</p><div className="language-options">{languages.map(item=><button key={item.code} lang={item.code} type="button" aria-pressed={language===item.code} onClick={()=>{setLanguage(item.code);setModal(null);}}><span>{item.label}</span>{language===item.code&&<Check size={18}/>}</button>)}</div></div></Modal>}
     {editing&&<EditReading session={editing.session} messageId={editing.messageId} onClose={()=>setEditing(null)} onSave={(title,note)=>{updateSession(editing.session.id,session=>({...session,title,note}));setEditing(null);setToast(t('Reading updated.'));}} onRevise={revise}/>}
     {toast&&<div className="toast" role="status"><Check size={18}/>{toast}<button onClick={()=>setToast('')} aria-label={t('Dismiss notification')}><X size={17}/></button></div>}

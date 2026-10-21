@@ -4,6 +4,7 @@ import { Brand } from './components/Brand';
 import ReadingApp from './App';
 import { siteSurface } from './lib/site-routes';
 import { legacyPathHash } from './lib/routes';
+import { readReaderReturn, rememberReaderReturn, validReaderReturnHash } from './lib/reader-return';
 import './site.css';
 
 const Pricing = lazy(() => import('./components/CommercePage').then(module => ({ default: module.CommercePage })));
@@ -15,14 +16,19 @@ function Opening() { return <div className="site-opening" role="status"><Brand /
 export default function SiteRoot() {
   const [surface, setSurface] = useState(() => siteSurface(location.hash, location.pathname));
   const [appStarted, setAppStarted] = useState(() => surface === 'app');
-  const lastReaderHash = useRef(surface === 'app' ? location.hash || legacyPathHash(location.pathname) || '#chat' : '#chat');
+  const lastReaderHash = useRef(surface === 'app' ? validReaderReturnHash(location.hash || legacyPathHash(location.pathname) || '#chat') || readReaderReturn() : readReaderReturn());
   const [content, setContent] = useState<SiteContent>();
+  const rememberActiveReader = () => {
+    const hash = validReaderReturnHash(location.hash || legacyPathHash(location.pathname) || '#chat');
+    if (hash) { lastReaderHash.current = hash; rememberReaderReturn(hash); }
+  };
   useEffect(() => {
     const changed = () => {
       const next = siteSurface(location.hash, location.pathname);
-      if (next === 'app') { setAppStarted(true); lastReaderHash.current = location.hash || '#chat'; }
+      if (next === 'app') { setAppStarted(true); rememberActiveReader(); }
       setSurface(next);
     };
+    if (siteSurface(location.hash, location.pathname) === 'app') rememberActiveReader();
     addEventListener('hashchange', changed); addEventListener('popstate', changed);
     return () => { removeEventListener('hashchange', changed); removeEventListener('popstate', changed); };
   }, []);
@@ -49,7 +55,7 @@ export default function SiteRoot() {
       {surface === 'support' && <Pricing donationOnly onStart={resumeReader} onHome={() => go('welcome')} />}
       {surface === 'admin' && <Admin onHome={() => go('welcome')} />}
       {/* Preserve an active reader while visiting pricing; its response can still save. */}
-      {appStarted && <div className="site-reader" hidden={surface !== 'app'}><ReadingApp onLeaveReader={() => { lastReaderHash.current = location.hash || '#chat'; }} /></div>}
+      {appStarted && <div className="site-reader" hidden={surface !== 'app'}><ReadingApp onLeaveReader={rememberActiveReader} /></div>}
     </Suspense>
   </>;
 }

@@ -2,7 +2,7 @@
 
 A light, mobile-first tarot conversation app. React 19, TypeScript, Tailwind CSS, Lucide, Vite, WebLLM and a PWA service worker.
 
-Last updated: 21 October 2026.
+Last updated: 22 October 2026.
 
 ## What works
 
@@ -80,11 +80,11 @@ The dedicated Eva Tarot Supabase project is provisioned in Singapore after appro
 
 ## Pricing, payments and owner dashboard
 
-The public landing page is at `/`, the reader at `/#chat`, pricing at `/pricing`, donations at `/support`, and the owner dashboard at `/admin`. Visiting pricing preserves the current reader and draft. PWA installation starts directly in chat.
+The public landing page is at `/`, the reader at `/#chat`, pricing at `/pricing`, donations at `/support`, and the owner dashboard at `/admin`. Visiting pricing preserves the current reader and draft, including the return route across a same-tab pricing reload. A typed insufficient-credit response opens a dismissible in-chat sheet with current catalog prices; returning after payment never submits a reading automatically. The composer shows the server balance and Daily Card shows the normal online reply cost. PWA installation starts directly in chat.
 
 New wallets receive one free AI reply. Active packages provide 1 / 3 / 5 completed replies for 25,000 / 60,000 / 95,000 VND. One credit covers any card count; follow-up replies cost another credit. The source-price consultation, Lenormand and astrology services are retained as inactive CMS records until the owner explicitly configures and activates them.
 
-Orders use immutable server price snapshots and unique transfer references. Reporting a transfer does not confirm payment. An approved owner must match the bank statement before confirming; the transaction grants credits once, even if confirmation is retried. Donations add no credits. Wallets use private browser capabilities; contact emails do not recover wallets. Clearing site data loses access unless the capability has been transferred.
+Orders use immutable server price snapshots and unique transfer references. Reporting a transfer does not confirm payment. An approved owner must match the bank statement before confirming; the transaction grants credits once, even if confirmation is retried. Donations add no credits. While the pricing page is visible and online, pending orders refresh every 15 seconds, with error backoff, an automatic-check limit, a last-checked timestamp and manual refresh. Order mutation invalidates older in-flight reads. Wallets use private browser capabilities; contact emails do not recover wallets. Clearing site data loses access unless the capability has been transferred.
 
 The reading server reserves credits before inference, refunds failures, and keeps successful results in an AES-GCM encrypted retry cache for 15 minutes. The browser retains a hashed request reference so a lost response can be recovered without a second charge. Longer interruptions can exceed the cache window. Private reading text is not included in analytics. Dashboard metrics are recorded page views, completed replies and verified payments, not claimed unique audience estimates.
 
@@ -104,3 +104,7 @@ npx vercel@latest alias set <ready-deployment-url> evatarot.vercel.app --scope o
 ```
 
 Verify both public aliases, manifest, bundles, all 78 card images, online disclosure, a real hosted reply, reload persistence and reading-link recovery. On-device checks apply only to that optional mode. The service worker caches public app/card assets, never chat API responses or private journal data. Model caching is managed separately by WebLLM.
+
+## Feedback decisions
+
+[The launch-feedback review](docs/FEEDBACK_DECISIONS.md) maps the supplied suggestions to existing features, this UX release, future product decisions and code examples that must not be copied. No new subscription, referral grant, email campaign, analytics vendor or price/trial change is enabled by that review.
