@@ -1,5 +1,22 @@
 # Eva Tarot verification record
 
+## 21 October 2026 — pricing and public website release
+
+Production: https://evatarot.xyz (Vercel deployment `dpl_9zrDZ78aMaHmkW8Bij4XU4ka7NCT`). Both old Vercel aliases serve this application and retain explicit saved-data transfers; `www` redirects to the apex. Namecheap A/CNAME values match Vercel recommendations. The registered domain is `evatarot.xyz` with one e.
+
+Application source: `8de3889`. Supabase Singapore project `muiqwbcavofvnjbwhbem` has the CLI-generated launch migration plus capability-authenticated commerce and journal Edge Functions. Owner allowlist/auth users were provisioned separately from public source. Temporary provisioning code was removed after each user was created; current commerce function contains no bootstrap route. Organization-owner email can use built-in Auth mail; the external owner email still needs custom SMTP. Actual owner verification/login remains a user action and was not impersonated during testing.
+
+- Full automated suite: **230 passed, 1 skipped, 0 failed** (the optional SQL integration test requires an isolated database URL). Production build and strict TypeScript passed.
+- Isolated real PostgreSQL 17 suite: **12 passed**, including concurrent confirmation/credit-once, reservation/refund, RLS denial, price snapshots and optimistic settings updates. Edge/proxy security tests: **20 passed**.
+- Live public commerce: **9/9 passed**. Trial is granted once, published prices are 25k/60k/95k for 1/3/5 replies, order snapshots persist, donations grant no credits, cross-wallet access/admin spoofing are denied. No money was transferred or confirmed. Synthetic records were removed by exact IDs.
+- Live private journal: **5/5 passed** for write/restore, revision conflict protection and origin restrictions. Synthetic document was removed by its exact capability hash.
+- Live production AI: one synthetic one-card question generated a context-aware answer in **7.7 seconds**. Same request ID returned the identical cached answer in **0.9 seconds**; another request after the trial was spent returned **402 credits_required**. Synthetic wallet/ledger/reservation/event were removed. No budget increase or model change.
+- English and Vietnamese prompt-context checks completed successfully before release. They respected details of the supplied work/art scenarios; model tone and factual inferences still require editorial judgment.
+- QR source decoded and regenerated without changing its bank/account payload. Deterministic QR tests verify recipient, amount/reference generation and CRC. No test payment was sent.
+- Human code, TypeScript, database and security reviews completed; material navigation, stale-admin-data, QR-recipient and paid-retry findings were fixed and rechecked.
+
+Browser checks cover desktop/mobile landing, English/Vietnamese switching, chat entry, live catalog/trial balance, and preserving a draft through pricing. PWA start URL goes directly to chat; optional model loading remains separate. Physical iOS/Android installation, actual bank settlement and the owner's email verification are not simulated by these checks.
+
 Upgrade date: 7 October 2026 (Asia/Ho_Chi_Minh).
 
 Last updated: 9 October 2026.

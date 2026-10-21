@@ -37,7 +37,8 @@ export default function SiteRoot() {
   }, [surface]);
   useEffect(() => {
     if (surface === 'admin') return;
-    void fetch('/api/commerce', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'track_event', name: surface === 'pricing' ? 'pricing_view' : 'page_view', page: surface }), keepalive: true }).catch(() => {});
+    void fetch('/api/commerce', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'track_event', name: 'page_view', page: surface }), keepalive: true }).catch(() => {});
+    if(surface === 'pricing') void fetch('/api/commerce', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'track_event', name: 'pricing_view', page: 'pricing' }), keepalive: true }).catch(() => {});
   }, [surface]);
   const go = (hash: string) => { location.hash = hash; window.scrollTo({ top: 0 }); };
   const resumeReader = () => go(lastReaderHash.current.replace(/^#/, ''));
