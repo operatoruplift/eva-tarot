@@ -2,6 +2,15 @@
 
 Prepared 22 October 2026. Do not mark public sign-in available until email delivery and the two-device acceptance checks below pass.
 
+## Live configuration status — 22 October 2026
+
+- All three approved Resend DNS records below were saved in Namecheap. Public `dig` queries confirmed the exact TXT and CNAME values. Website A/CNAME routing and the existing root SPF record were untouched.
+- Resend's verification action was submitted. Its last visible status was **Pending / checking DNS**, not Verified.
+- The browser connection then dropped: the selected browser became unavailable and the browser inventory was empty. No verification screenshot was captured, and neither authentication template was applied live.
+- Supabase SMTP settings remain an unsaved draft. No SMTP password was entered and no SMTP save was completed.
+- A stable vault key was generated in a private file outside the repository; its upload to Supabase was **not confirmed**. Reuse that existing key rather than generating a replacement by default.
+- The customer recovery migration and `customer-account` function are deployed. The Edge and frontend feature gates remain disabled. Real email delivery, owner sign-in compatibility and two-device recovery acceptance remain pending.
+
 ## Design and data boundaries
 
 The customer Supabase Auth client uses its own `eva-customer-auth-v1` storage key. It does not consume or replace the owner dashboard session. Email one-time codes verify the customer; a payment contact email is not proof of ownership.
@@ -16,7 +25,7 @@ Local account journals use separate IndexedDB/fallback namespaces. First link du
 
 Workspace: operatoruplift. Sending domain: `auth.evatarot.xyz`; sending region shown by Resend: Tokyo. Sender to configure: `Eva Tarot <no-reply@auth.evatarot.xyz>`.
 
-Add the exact records shown by Resend in Namecheap Advanced DNS (TTL Automatic). Approval to add these three records was received on 22 October 2026. Do not replace website routing or unrelated mail records.
+The following records were approved and saved in Namecheap Advanced DNS on 22 October 2026 (TTL Automatic), and public `dig` queries confirmed their values. If changes become necessary, use the exact live records shown by Resend; do not replace website routing or unrelated mail records.
 
 | Type | Namecheap host | Value |
 | --- | --- | --- |
@@ -42,8 +51,8 @@ Resend documents these [Supabase SMTP settings](https://resend.com/docs/send-wit
 
 ## Activation
 
-1. Apply the reviewed customer recovery migration and deploy `customer-account` with handler authentication (`verify_jwt=false`). Browser database roles receive no vault/RPC privileges.
-2. Generate a new random 32-byte `EVA_ACCOUNT_VAULT_KEY` and store it only as a Supabase Edge secret. Keep a secure operator backup. **Do not replace the key once accounts are linked without re-encrypting every vault row first.** Never reuse the reading API internal key.
+1. Confirm the reviewed customer recovery migration and `customer-account` deployment remain in place with handler authentication (`verify_jwt=false`); both are already deployed. Browser database roles receive no vault/RPC privileges.
+2. Generate a random 32-byte `EVA_ACCOUNT_VAULT_KEY` once, or use the existing stable key if one has already been generated. For this deployment, the key already exists outside the repository and its upload is not confirmed. Store it only as a Supabase Edge secret and keep a secure operator backup. **Do not replace the key once accounts are linked without re-encrypting every vault row first.** Never reuse the reading API internal key.
 3. Keep `EVA_ACCOUNT_ENABLED` absent/false until SMTP and templates are ready; then set it to `true`. Set Vercel `VITE_CUSTOMER_ACCOUNTS_ENABLED=true` and rebuild only after the checks below succeed.
 4. Verify an owner can still use their existing sign-in flow. Do not impersonate the owner or bypass email verification for acceptance testing.
 
