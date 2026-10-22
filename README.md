@@ -108,3 +108,11 @@ Verify both public aliases, manifest, bundles, all 78 card images, online disclo
 ## Feedback decisions
 
 [The launch-feedback review](docs/FEEDBACK_DECISIONS.md) maps the supplied suggestions to existing features, this UX release, future product decisions and code examples that must not be copied. No new subscription, referral grant, email campaign, analytics vendor or price/trial change is enabled by that review.
+
+## Customer recovery preparation — 22 October 2026
+
+Email-verified recovery is implemented behind `VITE_CUSTOMER_ACCOUNTS_ENABLED` and the Edge `EVA_ACCOUNT_ENABLED` gates. It remains disabled until Resend domain/SMTP setup and real delivery checks finish. The new vault recovers the existing wallet and private-backup connections; it does not merge wallets, award another trial, or silently upload a journal on sign-in. Separate local namespaces and explicit backup consent preserve guest data and account boundaries. Only successfully synced data (currently up to 1 MB) is recoverable.
+
+The public payment page, catalog and QR metadata omit the recipient’s legal name. A banking app can still resolve the registered account holder. Current SQL seeds were redacted; historical Git commits were not rewritten.
+
+See [account recovery operations](docs/ACCOUNT_RECOVERY_OPERATIONS.md) for email DNS, secure SMTP handoff, feature activation and acceptance checks.

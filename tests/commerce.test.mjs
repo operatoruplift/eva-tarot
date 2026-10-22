@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createCommerceHandler, hashToken, validProduct, validSettings } from '../supabase/functions/commerce/index.ts';
+import { createCommerceHandler, hashToken, publicCommerceSettings, validProduct, validSettings } from '../supabase/functions/commerce/index.ts';
 import { createCommerceProxyHandler, createCommerceReadingClient, encryptReadingResponse, decryptReadingResponse } from '../server/commerce-proxy.mjs';
 import { createServer } from 'node:http';
 
@@ -10,7 +10,7 @@ const adminId='afcc30a4-0872-4e85-9e2f-9463bc35b0fb';
 const product={id:'one-question',title_en:'One question',title_vi:'1 câu hỏi',description_en:'A reading',description_vi:'Một bài đọc',price_vnd:25000,credits:1,category:'questions',kind:'credits',active:true,sort_order:10};
 const env={SUPABASE_URL:'https://project.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'service-secret',SUPABASE_PUBLISHABLE_KEY:'public-test'};
 const makeRequest=(body,headers={})=>new Request('https://project.supabase.co/functions/v1/commerce',{method:'POST',headers:{origin:'https://evatarot.xyz',apikey:'public-test','content-type':'application/json','x-eva-device':deviceA,...headers},body:JSON.stringify(body)});
-function backend({verified=true,allowlisted=true,quota=true,throwDatabase=false}={}) {
+function backend({verified=true,allowlisted=true,quota=true,throwDatabase=false,settings={pricing_mode:'consultations',donations_enabled:true}}={}) {
  const calls=[]; const wallets=new Map(); const orders=[]; let authCalls=0;
  const fetcher=async (url,init={})=>{
   calls.push({url,init});
@@ -35,7 +35,7 @@ function backend({verified=true,allowlisted=true,quota=true,throwDatabase=false}
   if (['commerce_finish_reading','commerce_refund_reading','commerce_record_reading_event'].includes(name)) return Response.json(true);
   if (name==='commerce_analytics') return Response.json({customers:wallets.size,orders:orders.length,confirmedRevenueVnd:0,daily:[]});
   if (name==='eva_products') return Response.json([product]);
-  if (name==='eva_settings') return Response.json([{config:{pricing_mode:'consultations',donations_enabled:true}}]);
+  if (name==='eva_settings') return Response.json([{config:settings}]);
   if (name==='eva_admins') return Response.json(allowlisted?[{email:'owner@example.com'}]:[]);
   if (name==='eva_server_credentials') return Response.json(url.includes(await hashToken(internalKey))?[{id:'reading-api'}]:[]);
   if (name==='eva_wallets') return Response.json([...wallets.values()]);
@@ -51,6 +51,16 @@ test('catalog is public but rejects foreign origins and unknown keys',async()=>{
  assert.equal(response.headers.get('access-control-allow-origin'),'https://evatarot.xyz');
  assert.equal((await b.handler(makeRequest({action:'catalog'},{origin:'https://evil.example'}))).status,403);
  assert.equal((await b.handler(makeRequest({action:'catalog',service_role:'anything'}))).status,400);
+});
+test('public catalog omits legal recipient and opaque QR settings while the owner retains them',async()=>{
+ const settings={pricing_mode:'paid',bank_name:'Techcombank',bank_bin:'970407',account_number:'6886439999',account_name:'PRIVATE RECIPIENT',qr_payload:'an opaque QR with a private recipient',qr_image:'/payments/private-image.png',private_note:'owner only'};
+ const b=backend({settings});
+ const publicCatalog=await(await b.handler(makeRequest({action:'catalog'}))).json();
+ assert.deepEqual(publicCatalog.catalog.settings,{pricing_mode:'paid',bank_name:'Techcombank',bank_bin:'970407',account_number:'6886439999'});
+ assert.doesNotMatch(JSON.stringify(publicCatalog),/PRIVATE RECIPIENT|private-image|private_note|opaque QR/);
+ const owner=await(await b.handler(makeRequest({action:'admin_dashboard'},{authorization:'Bearer real-auth-token'}))).json();
+ assert.deepEqual(owner.catalog.settings,settings);
+ assert.deepEqual(publicCommerceSettings(settings),publicCatalog.catalog.settings);
 });
 test('wallet requires a valid capability and sends only its SHA256 hash to database',async()=>{
  const b=backend();assert.equal((await b.handler(makeRequest({action:'wallet'},{'x-eva-device':'short'}))).status,401);

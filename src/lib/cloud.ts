@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { validDayNotes, validPracticeDays, validProfile, validSessions } from './storage.ts';
 import type { Profile, Session } from './storage.ts';
+import { CONNECTION_EVENT, CONNECTION_KEY, personalScope, persistConnection, readConnection } from './account-connection.ts';
 
 export type CloudDocument = { profile: Profile; sessions: Session[]; practiceDays?: string[]; dayNotes?: Record<string, string>; language?: string };
 type CloudStatus = 'disabled' | 'connecting' | 'syncing' | 'synced' | 'offline' | 'error';
@@ -23,6 +24,11 @@ export function makeDeviceToken(): string {
 }
 function readToken(onlyEnabled = false): string | null {
   try {
+    const connection = readConnection();
+    if (connection) {
+      const current = connection.account ?? connection.guest;
+      return !onlyEnabled || current.backupEnabled ? current.backupToken : null;
+    }
     if (onlyEnabled && localStorage.getItem(ENABLED_KEY) !== 'true') return null;
     const token = localStorage.getItem(TOKEN_KEY);
     return token && /^[a-f0-9]{64}$/.test(token) ? token : null;
@@ -115,6 +121,7 @@ async function requestBackup(token: string, signal: AbortSignal, write?: { docum
 }
 
 export function useCloudJournal({ profile, sessions, practiceDays, dayNotes, language, ready = true, onRestore }: CloudDocument & { ready?: boolean; onRestore: (document: CloudDocument) => void }): CloudJournal {
+  const connectionScope = useRef(personalScope());
   const [token, setToken] = useState(() => readToken(true));
   const [hydrated, setHydrated] = useState(false);
   const [status, setStatus] = useState<CloudStatus>(token ? 'connecting' : 'disabled');
@@ -139,16 +146,21 @@ export function useCloudJournal({ profile, sessions, practiceDays, dayNotes, lan
 
   useEffect(() => {
     const connected = () => { setOnline(navigator.onLine); if (navigator.onLine) setAttempt((value) => value + 1); };
-    const connectionChanged = (event: StorageEvent) => {
-      if (event.key !== ENABLED_KEY && event.key !== TOKEN_KEY && event.key !== null) return;
+    const connectionChanged = (event: Event) => {
+      if ('key' in event && event.key !== ENABLED_KEY && event.key !== TOKEN_KEY && event.key !== CONNECTION_KEY && event.key !== null) return;
       epoch.current++; operation.current?.abort();
+      // The parent remounts this hook for another account. Never let the old
+      // journal hydrate or write using a newly selected account's capability.
+      if (personalScope() !== connectionScope.current) { setToken(null); setHydrated(false); setStatus('disabled'); return; }
       const connection = readToken(true);
+      if (observedBaseline.current?.connection !== connection) observedBaseline.current = { connection, document: connection ? readBaseline(connection) : null };
       setToken(connection); setHydrated(false); setConflict(false); setError('');
       setStatus(connection ? 'connecting' : 'disabled');
     };
     window.addEventListener('online', connected); window.addEventListener('offline', connected);
     window.addEventListener('storage', connectionChanged);
-    return () => { window.removeEventListener('online', connected); window.removeEventListener('offline', connected); window.removeEventListener('storage', connectionChanged); operation.current?.abort(); };
+    window.addEventListener(CONNECTION_EVENT, connectionChanged);
+    return () => { window.removeEventListener('online', connected); window.removeEventListener('offline', connected); window.removeEventListener('storage', connectionChanged); window.removeEventListener(CONNECTION_EVENT, connectionChanged); operation.current?.abort(); };
   }, []);
   useEffect(() => {
     if (!ready || !token || !configured || hydrated || !online) return;
@@ -163,7 +175,8 @@ export function useCloudJournal({ profile, sessions, practiceDays, dayNotes, lan
       // Another tab may update localStorage's baseline while this tab still has
       // older state. Only use the baseline this mounted hook has observed.
       const baseline = observedBaseline.current?.connection === token ? observedBaseline.current.document : null;
-      if (remote.document && !rebaseOnRetry.current && hasCloudConflict(local, remote.document, baseline)) {
+      const accountRestore = Boolean(readConnection()?.account) && local.sessions.length === 0 && !local.profile.name && !local.profile.avatar && !local.profile.onboarded && !Object.keys(local.dayNotes ?? {}).length && !(local.practiceDays ?? []).length;
+      if (remote.document && !accountRestore && !rebaseOnRetry.current && hasCloudConflict(local, remote.document, baseline)) {
         setConflict(true); setStatus('error');
         setError('This device and your cloud backup contain different edits. Both versions are intact. Choose this device’s version to continue backing up.');
         return;
@@ -222,12 +235,18 @@ export function useCloudJournal({ profile, sessions, practiceDays, dayNotes, lan
     if (!configured) return;
     try {
       const next = readToken() ?? makeDeviceToken();
-      localStorage.setItem(TOKEN_KEY, next); localStorage.setItem(ENABLED_KEY, 'true');
+      const connection = readConnection();
+      if (connection) persistConnection(connection.account ? { ...connection, account: { ...connection.account, backupEnabled: true } } : { ...connection, guest: { ...connection.guest, backupToken: next, backupEnabled: true } });
+      else { localStorage.setItem(TOKEN_KEY, next); localStorage.setItem(ENABLED_KEY, 'true'); }
       setToken(next); setError(''); setHydrated(false); setStatus('connecting'); setAttempt((value) => value + 1);
     } catch { setStatus('error'); setError('This browser cannot save a private backup connection. Allow site storage, or export your journal instead.'); }
   }
   function disconnect() {
-    try { localStorage.removeItem(ENABLED_KEY); }
+    try {
+      const connection = readConnection();
+      if (connection) persistConnection(connection.account ? { ...connection, account: { ...connection.account, backupEnabled: false } } : { ...connection, guest: { ...connection.guest, backupEnabled: false } });
+      else localStorage.removeItem(ENABLED_KEY);
+    }
     catch { setError('This browser could not pause backup. Please allow site storage and try again.'); return; }
     epoch.current++; operation.current?.abort(); setToken(null); setHydrated(false); setConflict(false); setStatus('disabled'); setError('');
   }

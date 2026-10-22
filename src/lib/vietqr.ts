@@ -16,7 +16,7 @@ function field(tag: string, value: string): string {
   return `${tag}${String(bytes).padStart(2, '0')}${value}`;
 }
 
-/** Deterministic VietQR encoding; the recipient is always displayed beside it. */
+/** Encodes only bank routing, amount and reference, never a legal name. */
 export function buildVietQR({ bankBin, accountNumber, amountVnd, reference }: {
   bankBin: string; accountNumber: string; amountVnd?: number; reference?: string;
 }): string {

@@ -1,5 +1,18 @@
 # Eva Tarot verification record
 
+## 22 October 2026 — payment privacy and prepared customer recovery
+
+- Full suite: **306 passed, 1 optional isolated-database test skipped, 0 failed** (307 total). Final production build and strict TypeScript passed. Existing lazy runtime/bundle warnings remain.
+- Recipient legal name removed from public payment rendering, copy actions, accessible QR labels and public catalog. Public catalog also omits arbitrary QR metadata. Exact bank/account/amount/reference and existing downloadable nameless QR remain verified. Current SQL seeds were redacted; historical Git commits were not rewritten. Banking apps can still resolve the legal holder.
+- Prepared a dedicated customer OTP Auth client, explicit-consent recovery UI, encrypted service-only account vault, isolated local account namespaces and safe guest retention. No extra trial, wallet replacement or automatic balance merge. Only successfully synced private backup data is recoverable (current 1 MB limit).
+- Independent code, TypeScript and backend security reviews passed after correcting cross-tab pause, prior-account token reuse, storage failure isolation and stale async account/reply operations. Actual hook/renderer tests cover paused uploads, changed accounts, closed panels, stale restores, latest drafts, failed sign-out notices and private-reader markers. Real isolated PostgreSQL checks cover vault grants/RLS, unique claims, unchanged balances and quotas.
+- Supabase customer migration applied; customer-account Edge v1 deployed with its own verification. Production table checks confirm RLS and no anon/authenticated SELECT privileges. Recovery remains feature-gated off while real email delivery is pending. No real customer account was linked and no verification was bypassed.
+- Resend workspace connected by the user; auth.evatarot.xyz prepared with exact live DNS values. User approved the three email records. Namecheap login remains required before applying them. Supabase SMTP public fields prepared as an unsaved draft; no SMTP password entered or email sent. Local vault key file prepared with private filesystem permissions; a stalled CLI secret upload was stopped and is not treated as configured.
+- Browser preview checks at 390 × 844 verified the Vietnamese email-code form without sending a code, with no horizontal overflow. Public release stays in the honest pending-email state; prepared-form screenshots are local previews, not proof of delivery or account restoration.
+
+See [account recovery operations](docs/ACCOUNT_RECOVERY_OPERATIONS.md) for the remaining SMTP, activation and real two-device acceptance steps.
+
+
 ## 22 October 2026 — clearer credit and payment recovery
 
 Production: https://evatarot.xyz, deployment `dpl_6pSX6EHZnx6NRhBDyJxSC4TUQ2Cd`. Application source `ecc0745`; [GitHub CI passed](https://github.com/operatoruplift/eva-tarot/actions/runs/39646805824). Both old Vercel aliases were moved to this release.

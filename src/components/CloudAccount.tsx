@@ -3,8 +3,8 @@ import { Check, Cloud, CloudOff, RefreshCw, ShieldCheck } from 'lucide-react';
 import type { CloudJournal } from '../lib/cloud';
 import './cloud.css';
 
-export function CloudAccount({ cloud }: { cloud: CloudJournal }) {
-  const { t, formatDate } = useLanguage();
+export function CloudAccount({ cloud, accountLinked = false }: { cloud: CloudJournal; accountLinked?: boolean }) {
+  const { t, formatDate, language } = useLanguage();
   if (!cloud.available) return null;
   const busy = cloud.status === 'connecting' || cloud.status === 'syncing';
   const label = cloud.status === 'connecting' ? 'Connecting your private backup…'
@@ -14,8 +14,8 @@ export function CloudAccount({ cloud }: { cloud: CloudJournal }) {
           : cloud.enabled ? 'Your journal is saved on this device' : 'A little extra peace of mind';
   return <section className="cloud-account" aria-label={t("Private device backup")}>
     <div className="cloud-heading"><span className="cloud-icon"><Cloud size={21}/></span><div><h3>{t("Private device backup")}</h3><p>{t(label)}</p></div></div>
-    <p className="cloud-description">{t("Optionally save your name, readings and notes to Eva Tarot’s secure cloud. This connection belongs to this browser; it is not an email account or cross-device sync.")}</p>
-    <p className="cloud-storage-note"><ShieldCheck size={15}/><span>{t("Keep an exported copy. Clearing browser data loses this device’s backup connection.")}</span></p>
+    <p className="cloud-description">{accountLinked ? (language==='vi'?'Kết nối sao lưu này đã được liên kết với tài khoản của bạn. Khi khôi phục tài khoản trên thiết bị khác, dữ liệu đã đồng bộ sẽ xuất hiện.':'This backup connection is linked to your account. Restoring that account on another device retrieves its synced readings, profile and calendar notes.') : t("Optionally save your name, readings and notes to Eva Tarot’s secure cloud. This connection belongs to this browser; it is not an email account or cross-device sync.")}</p>
+    <p className="cloud-storage-note"><ShieldCheck size={15}/><span>{accountLinked ? (language==='vi'?'Chỉ các thay đổi đã đồng bộ mới khôi phục được. Hãy giữ thêm một bản xuất.':'Only successfully synced changes can be restored. Keep an exported copy too.') : t("Keep an exported copy. Clearing browser data loses this device’s backup connection.")}</span></p>
     {cloud.error && <p className="cloud-error" role="alert">{t(cloud.error)}</p>}
     <div className="cloud-actions">
       {!cloud.enabled ? <button className="secondary-button" onClick={cloud.enable}><Cloud size={17}/>{t("Enable private backup")}</button>

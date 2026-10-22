@@ -4,7 +4,7 @@ import { SOURCE_DONATION_QR } from './vietqr.ts';
 /** Owner-supplied bank details; this public QR has no amount or order reference. */
 export const PUBLIC_DONATION_DETAILS: CommerceSettings = Object.freeze({
   bank_name: 'Techcombank', bank_bin: '970407', account_number: '6886439999',
-  account_name: 'TRAN THI THANH HUYEN', qr_payload: SOURCE_DONATION_QR,
+  qr_payload: SOURCE_DONATION_QR,
   qr_image: '/payments/donation-qr.svg', donations_enabled: true,
 });
 

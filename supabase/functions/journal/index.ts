@@ -23,9 +23,10 @@ export function validDocument(value: unknown): boolean {
   if (value.language !== undefined && (typeof value.language !== 'string' || !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/.test(value.language))) return false;
   const ids = new Set<string>();
   return value.sessions.every((session) => {
-    if (!record(session) || !keys(session, ['id', 'title', 'focus', 'date', 'messages', 'saved', 'note', 'daily', 'drawCount', 'revisedFrom'])
+    if (!record(session) || !keys(session, ['id', 'title', 'focus', 'date', 'messages', 'saved', 'note', 'daily', 'drawCount', 'revisedFrom', 'privateReader'])
         || !text(session.id, 80) || !session.id || ids.has(session.id as string) || !text(session.title, 1000) || !text(session.focus, 100)
         || !text(session.date, 40) || !Number.isFinite(Date.parse(session.date as string)) || typeof session.saved !== 'boolean' || !text(session.note, 1200)
+        || (session.privateReader !== undefined && typeof session.privateReader !== 'boolean')
         || (session.daily !== undefined && typeof session.daily !== 'boolean') || (session.drawCount !== undefined && ![0, 1, 3, 5, 10].includes(session.drawCount as number))
         || (session.revisedFrom !== undefined && !text(session.revisedFrom, 80))
         || !Array.isArray(session.messages)) return false;

@@ -9,11 +9,14 @@ import { CardBack, CardDeck, DrawnCards } from './components/TarotCards';
 import { CardGuidance } from './components/CardGuidance';
 import { TodayScreen, topics } from './components/Rituals';
 import { CloudAccount } from './components/CloudAccount';
+import { CustomerAccount } from './components/CustomerAccount';
 import { Calendar } from './components/Calendar';
 import { ProfilePhoto, ProfileAvatar } from './components/ProfilePhoto';
 import { VoiceInput } from './components/VoiceInput';
-import { useCloudJournal } from './lib/cloud';
-import { usePersistentData, createDataExport, parseDataImport, MAX_BACKUP_BYTES } from './lib/persistence';
+import { makeDeviceToken, useCloudJournal } from './lib/cloud';
+import { usePersistentData, seedPersistentScope, createDataExport, parseDataImport, MAX_BACKUP_BYTES } from './lib/persistence';
+import { CONNECTION_KEY, guestFromBrowser, nextAccountConnection, persistConnection, prepareLinkBackupToken, readConnection } from './lib/account-connection';
+import { linkCustomerAccount } from './lib/customer-auth';
 import { useLanguage, languages } from './lib/i18n';
 import { cards, drawCards } from './data/tarot';
 import { tarotVi } from './data/tarot-vi';
@@ -36,9 +39,10 @@ import { EditReading } from './components/EditReading';
 import { DomainTransfer } from './components/DomainTransfer';
 import { localDay } from './lib/storage';
 import type { Session } from './lib/storage';
-import { commerceRequest, getWallet, type CommerceCatalog } from './lib/commerce';
+import { commerceRequest, getDeviceToken, getWallet, type CommerceCatalog } from './lib/commerce';
 import { createCreditRefresh, emptyCreditSnapshot, requiresReadingCredits, usesOnlineCredits } from './lib/credit-ui';
 import { siteSurface } from './lib/site-routes';
+import { rememberReaderReturn } from './lib/reader-return';
 
 type View = AppView | 'missing';
 type Phase = 'idle' | 'shuffling' | 'picking';
@@ -64,10 +68,12 @@ function Paragraphs({text}:{text:string}) {
   })}</div>;
 }
 
-export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
-  const data = usePersistentData();
+export default function App({onLeaveReader,personalDataScope,onAccountNotice}:{onLeaveReader?:()=>void;personalDataScope?:string;onAccountNotice?:(message:string)=>void}={}) {
+  const data = usePersistentData(personalDataScope);
   const {profile,setProfile,sessions,setSessions,practiceDays,setPracticeDays,dayNotes,setDayNotes,ready} = data;
   const {t,language,setLanguage,locale,formatDate} = useLanguage();
+  const latestData = useRef(data); latestData.current = data;
+  const accountConnection = readConnection()?.account;
   const [view,setView] = useState<View>('home');
   const [missingReason,setMissingReason] = useState<MissingReadingReason>('missing');
   const [activeId,setActiveId] = useState<string|null>(null);
@@ -78,6 +84,7 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
   const [selected,setSelected] = useState<number[]>([]);
   const [loadingIds,setLoadingIds] = useState<Set<string>>(new Set());
   const inFlight = useRef(new Set<string>());
+  const readerAlive = useRef(true);
   const replyControllers = useRef(new Map<string,AbortController>());
   const [errors,setErrors] = useState<Record<string,string>>({});
   const [modal,setModal] = useState<'about'|'settings'|'install'|'language'|null>(null);
@@ -115,6 +122,7 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
   const [voiceMessage,setVoiceMessage] = useState('');
   const [voiceContext,setVoiceContext] = useState(0);
   const [importing,setImporting] = useState(false);
+  const switchBlockers = useRef({phase,importing,input}); switchBlockers.current={phase,importing,input};
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
@@ -131,6 +139,62 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
     profile,sessions,practiceDays,dayNotes,language,ready:ready&&!data.needsRecovery,
     onRestore: restored=>{setProfile(restored.profile);setSessions(restored.sessions);setPracticeDays(restored.practiceDays || []);setDayNotes(restored.dayNotes || {});if(restored.language)setLanguage(restored.language as typeof language);},
   });
+  useEffect(() => {readerAlive.current=true;return () => {
+    readerAlive.current=false;
+    for (const controller of replyControllers.current.values()) controller.abort();
+    replyControllers.current.clear(); inFlight.current.clear();
+    aiSetupAttempt.current++; enablingAI.current=false; pendingAI.current=null;
+    cancelLocalAI();
+  };}, []);
+
+  function assertAccountOperation(expected: string | null, signal?: AbortSignal) {
+    if (signal?.aborted || !readerAlive.current || localStorage.getItem(CONNECTION_KEY)!==expected) throw new Error(language==='vi'?'Kết nối đã thay đổi. Hãy mở lại hồ sơ để tiếp tục.':'Your connection changed. Reopen your profile to continue.');
+    assertSwitchReady();
+  }
+  function assertSwitchReady() {
+    const blockers=switchBlockers.current;
+    if (inFlight.current.size || blockers.phase !== 'idle' || blockers.importing || blockers.input.trim()) throw new Error(language === 'vi' ? 'Hãy hoàn tất trải bài và gửi hoặc xóa tin nhắn nháp trước khi đổi kết nối.' : 'Finish the reading and send or clear your draft before changing connections.');
+  }
+  async function beforeAccountSwitch() {
+    if (!readerAlive.current) throw new Error('This reader has closed. Reopen your profile to continue.');
+    assertSwitchReady();
+    await data.flush();
+    if (!readerAlive.current) throw new Error('This reader has closed. Reopen your profile to continue.');
+    assertSwitchReady();
+  }
+  function activateAccount(user: {id:string;email:string}, capabilities: {commerceToken:string;backupToken:string}, linkingGuest: boolean) {
+    const previous = readConnection();
+    const guest = guestFromBrowser(getDeviceToken());
+    const next = nextAccountConnection(guest, {userId:user.id,email:user.email,...capabilities,backupEnabled:true}, linkingGuest, makeDeviceToken, uid);
+    // A recovered account never absorbs a different device's guest wallet.
+    // A first link leaves its old guest archive out of the signed-out view.
+    if (previous?.account && previous.account.userId !== user.id) throw new Error('Sign out of the current device connection before restoring another account.');
+    persistConnection(next);
+    rememberReaderReturn('#chat'); location.hash = '#chat';
+  }
+  const customerAccount = <CustomerAccount connectedEmail={accountConnection?.email} beforeSwitch={beforeAccountSwitch} onSignOutError={onAccountNotice}
+    onLink={async (user, accessToken, signal) => {
+      let expected=localStorage.getItem(CONNECTION_KEY);
+      await beforeAccountSwitch();
+      assertAccountOperation(expected,signal);
+      if (readConnection()?.account) throw new Error(language==='vi'?'Hãy đăng xuất kết nối hiện tại trước khi lưu tài khoản khác.':'Sign out of the current device connection before saving another account.');
+      const commerceToken = getDeviceToken();
+      await getWallet();
+      assertAccountOperation(expected,signal);
+      const backupToken = prepareLinkBackupToken(makeDeviceToken);
+      expected=localStorage.getItem(CONNECTION_KEY);
+      await linkCustomerAccount(accessToken,{commerceToken,backupToken});
+      assertAccountOperation(expected,signal);
+      await beforeAccountSwitch();
+      assertAccountOperation(expected,signal);
+      const snapshot = latestData.current;
+      await seedPersistentScope(`account-${user.id}`,{profile:snapshot.profile,sessions:snapshot.sessions,practiceDays:snapshot.practiceDays,dayNotes:snapshot.dayNotes});
+      assertAccountOperation(expected,signal);
+      activateAccount(user,{commerceToken,backupToken},true);
+    }}
+    onRestore={async (user,capabilities,signal) => {const expected=localStorage.getItem(CONNECTION_KEY);await beforeAccountSwitch();assertAccountOperation(expected,signal);const active=readConnection()?.account;if(active&&active.userId!==user.id)throw new Error(language==='vi'?'Hãy đăng xuất kết nối hiện tại trước khi khôi phục tài khoản khác.':'Sign out of the current device connection before restoring another account.');activateAccount(user,capabilities,false);}}
+    onDisconnect={async () => {const expected=localStorage.getItem(CONNECTION_KEY);await beforeAccountSwitch();assertAccountOperation(expected);const state=readConnection();if(state?.account){persistConnection({...state,account:null});rememberReaderReturn('#chat');location.hash='#chat';}}}
+  />;
 
   useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(''),5000);return()=>clearTimeout(timer);},[toast]);
   useEffect(()=>{setPaywallSession(previous=>view==='chat'&&previous===activeId?previous:null);},[activeId,view]);
@@ -409,7 +473,7 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
           {error&&<div className="error-panel" role="alert"><p>{error}</p><div className="credit-error-actions">{creditErrors.has(current.id)&&<button className="text-button" onClick={()=>setPaywallSession(current.id)}><Wallet size={16}/>{language==='vi'?'Xem các gói lượt':'View credit packages'}</button>}<button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>void generate(current,activeDraw,latestQuestion(current))}><RefreshCw size={16}/>{t('Try again')}</button>{readerMode==='local'&&<button className="text-button" disabled={generating||phase!=='idle'} onClick={()=>{pendingAI.current={session:current,drawn:activeDraw,question:latestQuestion(current)};chooseReader('online');}}>{t('Use Online AI')}</button>}</div></div>}
           {!generating&&!error&&data.isCurrentDataSaved&&current.messages.some(message=>message.mode)&&<div className="conversation-saved"><Check size={14}/>{t('Conversation saved automatically')}</div>}
         </div>}
-        {view==='journal'&&<div className="library-content history-content screen-enter"><div className="page-intro"><span className="eyebrow">{t('YOUR STORY, KEPT HERE')}</span><h1>{t('All your conversations.')}</h1><p>{t('Every conversation is saved. Come back whenever you like.')}</p></div><div className="history-tools"><label className="history-search"><Search size={18}/><input aria-label={t('Search conversations')} placeholder={t('Search conversations')} value={search} onChange={event=>setSearch(event.target.value)}/></label><button className={savedOnly?'selected':''} aria-pressed={savedOnly} onClick={()=>setSavedOnly(value=>!value)}><Bookmark size={17}/>{t('Bookmarks')}</button></div><div className="journal-list">{shownSessions.map(session=><article className="journal-entry" key={session.id}><div className="journal-text"><span className="eyebrow">{formatDate(new Date(session.date),{year:'numeric',month:'short',day:'numeric'})} · {t(session.drawCount===10?'In-depth reading':session.drawCount===0?'Chat':'Tarot')}</span><h2>{session.title}</h2><button className="text-button history-edit" onClick={()=>setEditing({session,messageId:session.messages.find(message=>message.role==='user')?.id||''})}><Pencil size={16}/>{t('Edit reading')}</button><button className="text-button" onClick={()=>openSession(session)}>{t('Continue conversation')}<ArrowRight size={16}/></button><label className="note-label" htmlFor={`note-${session.id}`}>{t('A note to your future self')}</label><textarea id={`note-${session.id}`} value={session.note} maxLength={1200} placeholder={t('What stayed with you?')} onChange={event=>updateSession(session.id,value=>({...value,note:event.target.value}))}/></div><button className={`icon-button ${session.saved?'saved':''}`} aria-label={t(session.saved?'Remove from saved conversations':'Save conversation')} onClick={()=>updateSession(session.id,value=>({...value,saved:!value.saved}))}><Bookmark size={20} fill={session.saved?'currentColor':'none'}/></button></article>)}</div>{!shownSessions.length&&<div className="empty-state"><MessageCircle size={38}/><h2>{t(search?'No conversations found.':savedOnly?'No bookmarks yet.':'Your story starts here.')}</h2><button className="primary-button" onClick={newChat}>{t('Start a conversation')}<ArrowRight size={18}/></button></div>}<CloudAccount cloud={cloud}/></div>}
+        {view==='journal'&&<div className="library-content history-content screen-enter"><div className="page-intro"><span className="eyebrow">{t('YOUR STORY, KEPT HERE')}</span><h1>{t('All your conversations.')}</h1><p>{t('Every conversation is saved. Come back whenever you like.')}</p></div><div className="history-tools"><label className="history-search"><Search size={18}/><input aria-label={t('Search conversations')} placeholder={t('Search conversations')} value={search} onChange={event=>setSearch(event.target.value)}/></label><button className={savedOnly?'selected':''} aria-pressed={savedOnly} onClick={()=>setSavedOnly(value=>!value)}><Bookmark size={17}/>{t('Bookmarks')}</button></div><div className="journal-list">{shownSessions.map(session=><article className="journal-entry" key={session.id}><div className="journal-text"><span className="eyebrow">{formatDate(new Date(session.date),{year:'numeric',month:'short',day:'numeric'})} · {t(session.drawCount===10?'In-depth reading':session.drawCount===0?'Chat':'Tarot')}</span><h2>{session.title}</h2><button className="text-button history-edit" onClick={()=>setEditing({session,messageId:session.messages.find(message=>message.role==='user')?.id||''})}><Pencil size={16}/>{t('Edit reading')}</button><button className="text-button" onClick={()=>openSession(session)}>{t('Continue conversation')}<ArrowRight size={16}/></button><label className="note-label" htmlFor={`note-${session.id}`}>{t('A note to your future self')}</label><textarea id={`note-${session.id}`} value={session.note} maxLength={1200} placeholder={t('What stayed with you?')} onChange={event=>updateSession(session.id,value=>({...value,note:event.target.value}))}/></div><button className={`icon-button ${session.saved?'saved':''}`} aria-label={t(session.saved?'Remove from saved conversations':'Save conversation')} onClick={()=>updateSession(session.id,value=>({...value,saved:!value.saved}))}><Bookmark size={20} fill={session.saved?'currentColor':'none'}/></button></article>)}</div>{!shownSessions.length&&<div className="empty-state"><MessageCircle size={38}/><h2>{t(search?'No conversations found.':savedOnly?'No bookmarks yet.':'Your story starts here.')}</h2><button className="primary-button" onClick={newChat}>{t('Start a conversation')}<ArrowRight size={18}/></button></div>}<CloudAccount cloud={cloud} accountLinked={Boolean(accountConnection)}/></div>}
         {view==='learn'&&<div className="library-content"><div className="page-intro"><span className="eyebrow">{t('THE COMPLETE DECK')}</span><h1>{t('78 cards. A world of everyday stories.')}</h1><p>{t('Numbered exactly from The Fool (1) to King of Pentacles (78). Public-domain Rider–Waite–Smith artwork.')}</p></div><div className="deck-library-tools"><input aria-label={t('Find a card')} placeholder={t('Search by name or number')} value={deckSearch} onChange={event=>setDeckSearch(event.target.value)}/><SoftSelect aria-label={t('Card suit')} value={deckSuit} onChange={setDeckSuit} options={['all','major','wands','cups','swords','pentacles'].map(suit=>({value:suit,label:t({all:'All 78 cards',major:'Major Arcana',wands:'Wands',cups:'Cups',swords:'Swords',pentacles:'Pentacles'}[suit]!)}))}/></div><div className="card-library">{cards.filter(card=>(deckSuit==='all'||card.suit===deckSuit)&&(!deckSearch||`${card.id+1} ${card.name} ${tarotVi[card.id].name}`.toLocaleLowerCase(locale).includes(deckSearch.toLocaleLowerCase(locale)))).map(card=><button className="library-card" key={card.id} onClick={()=>setDetail(card)}><img src={card.image} alt={language==='vi'?tarotVi[card.id].name:card.name} loading="lazy"/><span className="eyebrow">{card.id+1} / 78</span><h2>{language==='vi'?tarotVi[card.id].name:t(card.name)}</h2></button>)}</div></div>}
 
       </div>
@@ -427,7 +491,7 @@ export default function App({onLeaveReader}:{onLeaveReader?:()=>void}={}) {
       </footer>}
       {view!=='chat'&&<nav className="bottom-nav" aria-label={t('App navigation')}>{navItems.map(item=><button key={item.view} className={view===item.view?'active':''} aria-current={view===item.view?'page':undefined} onClick={()=>go(item.view)}><item.icon size={23}/><span>{t(item.label)}</span></button>)}</nav>}
     </main>
-    {modal==='settings'&&<Modal title={t('Your personal space')} onClose={()=>setModal(null)}><div className="settings-content"><h2>{t('A space that feels like you.')}</h2><ProfilePhoto value={profile.avatar} onChange={avatar=>setProfile(previous=>({...previous,avatar}))} labels={{upload:t('Upload profile photo'),remove:t('Remove photo'),hint:t('JPG, PNG or WebP · up to 10 MB'),alt:t('Profile photo'),saving:t('Preparing your photo…'),invalid:t('Choose a JPG, PNG or WebP image.'),tooLarge:t('Please choose an image smaller than 10 MB.'),unreadable:t('This image could not be opened. Try another photo.')}}/><label className="field-label" htmlFor="profile-name">{t('What should we call you?')}</label><input id="profile-name" value={nameDraft} maxLength={32} onChange={event=>setNameDraft(event.target.value)}/><button className="primary-button" onClick={()=>{setProfile(previous=>({...previous,name:nameDraft.trim(),onboarded:true}));setToast(t('Your profile has been updated.'));}}>{t('Save my name')}<Check size={17}/></button><label className="field-label" htmlFor="app-language">{t('Language')}</label><SoftSelect id="app-language" aria-label={t('Language')} value={language} onChange={setLanguage} options={languages.map(item=>({value:item.code,label:item.label}))}/><p className="privacy-small">{t('English and Vietnamese are the primary languages. Some reference content may appear in English in other languages.')}</p><section className="settings-storage-note"><ShieldCheck size={19}/><div><h3>{t('Your saved data')}</h3><p>{saveLabel}</p></div></section><CloudAccount cloud={cloud}/><div className="settings-actions"><button className="secondary-button" onClick={()=>{setModal(null);pendingAI.current=null;setShowReaderOptions(true);}}><Settings2 size={18}/>{t('Reader options')}</button><button className="secondary-button" onClick={exportData}><Download size={18}/>{t('Export all my data')}</button><button className="secondary-button" disabled={importing} onClick={()=>importRef.current?.click()}>{importing?<LoaderCircle className="spin" size={18}/>:<Upload size={18}/>} {t(importing?'Importing your backup…':'Import a backup')}</button><input className="visually-hidden" tabIndex={-1} aria-hidden="true" ref={importRef} type="file" accept="application/json,.json" onChange={event=>void importData(event.target.files?.[0])}/><button className="secondary-button" onClick={()=>void data.requestDurability().then(granted=>setToast(t(granted?'Persistent storage is enabled.':'Your data still saves here. Keep an exported backup too.')))}><Heart size={18}/>{t('Keep data on this device')}</button><button className="secondary-button" onClick={()=>void install()}><Plus size={18}/>{t('Add to home screen')}</button><button className="text-button" onClick={()=>{setModal(null);go('learn');}}><Compass size={18}/>{t('Explore all the cards')}</button></div><p className="privacy-small">{t('Your data is saved in this browser, not an online account. Export a backup to move it to another device or keep an extra copy.')}</p></div></Modal>}
+    {modal==='settings'&&<Modal title={t('Your personal space')} onClose={()=>setModal(null)}><div className="settings-content"><h2>{t('A space that feels like you.')}</h2><ProfilePhoto value={profile.avatar} onChange={avatar=>setProfile(previous=>({...previous,avatar}))} labels={{upload:t('Upload profile photo'),remove:t('Remove photo'),hint:t('JPG, PNG or WebP · up to 10 MB'),alt:t('Profile photo'),saving:t('Preparing your photo…'),invalid:t('Choose a JPG, PNG or WebP image.'),tooLarge:t('Please choose an image smaller than 10 MB.'),unreadable:t('This image could not be opened. Try another photo.')}}/><label className="field-label" htmlFor="profile-name">{t('What should we call you?')}</label><input id="profile-name" value={nameDraft} maxLength={32} onChange={event=>setNameDraft(event.target.value)}/><button className="primary-button" onClick={()=>{setProfile(previous=>({...previous,name:nameDraft.trim(),onboarded:true}));setToast(t('Your profile has been updated.'));}}>{t('Save my name')}<Check size={17}/></button><label className="field-label" htmlFor="app-language">{t('Language')}</label><SoftSelect id="app-language" aria-label={t('Language')} value={language} onChange={setLanguage} options={languages.map(item=>({value:item.code,label:item.label}))}/><p className="privacy-small">{t('English and Vietnamese are the primary languages. Some reference content may appear in English in other languages.')}</p><section className="settings-storage-note"><ShieldCheck size={19}/><div><h3>{t('Your saved data')}</h3><p>{saveLabel}</p></div></section>{customerAccount}<CloudAccount cloud={cloud} accountLinked={Boolean(accountConnection)}/><div className="settings-actions"><button className="secondary-button" onClick={()=>{setModal(null);pendingAI.current=null;setShowReaderOptions(true);}}><Settings2 size={18}/>{t('Reader options')}</button><button className="secondary-button" onClick={exportData}><Download size={18}/>{t('Export all my data')}</button><button className="secondary-button" disabled={importing} onClick={()=>importRef.current?.click()}>{importing?<LoaderCircle className="spin" size={18}/>:<Upload size={18}/>} {t(importing?'Importing your backup…':'Import a backup')}</button><input className="visually-hidden" tabIndex={-1} aria-hidden="true" ref={importRef} type="file" accept="application/json,.json" onChange={event=>void importData(event.target.files?.[0])}/><button className="secondary-button" onClick={()=>void data.requestDurability().then(granted=>setToast(t(granted?'Persistent storage is enabled.':'Your data still saves here. Keep an exported backup too.')))}><Heart size={18}/>{t('Keep data on this device')}</button><button className="secondary-button" onClick={()=>void install()}><Plus size={18}/>{t('Add to home screen')}</button><button className="text-button" onClick={()=>{setModal(null);go('learn');}}><Compass size={18}/>{t('Explore all the cards')}</button></div><p className="privacy-small">{language==='vi'?'Dữ liệu luôn lưu trên thiết bị này. Khi liên kết tài khoản và bật sao lưu, bạn có thể khôi phục dữ liệu đã đồng bộ trên thiết bị khác. Hãy giữ thêm một bản xuất.':'Your data always saves on this device. A linked account with backup enabled can restore synced data on another device. Keep an exported copy too.'}</p></div></Modal>}
     {modal==='about'&&<Modal title={t('How Eva Tarot works')} onClose={()=>setModal(null)}><div className="about-content"><Logo size={57}/><h2>{t('Your intuition. A fresh perspective.')}</h2><p>{t('Start with your situation. Eva suggests a spread, then interprets the cards in the context of your conversation.')}</p><p>{t('Choose 1, 3, 5 or 10 cards from the complete 78-card deck. The illustrations are Rider–Waite–Smith, not Gilded Tarot.')}</p><p>{t('Your history and calendar keep your reflections together. Future dates hold intentions, not predictions.')}</p><div className="soft-note">{t('Online AI works without a download and sends your conversation to Eva’s server and AI provider for replies. On-device AI is an optional experimental reader. AI can make mistakes; readings offer perspectives, not predictions.')}</div><button className="primary-button" onClick={()=>{setModal(null);newChat();}}>{t('Start a conversation')}<ArrowRight size={17}/></button></div></Modal>}
     {modal==='install'&&<Modal title={t('Add Eva Tarot to your home screen')} onClose={()=>setModal(null)}><div className="about-content"><Logo size={60}/><h2>{t('A little closer, whenever you need.')}</h2><div className="install-steps"><strong>{t('On iPhone or iPad')}</strong><p>{t('Open Eva Tarot in Safari, tap Share, then choose “Add to Home Screen.”')}</p><strong>{t('On Android or desktop')}</strong><p>{t('Open your browser menu and choose “Install app” or “Add to Home Screen.”')}</p></div></div></Modal>}
     {translatedDetail&&<Modal title={translatedDetail.name} onClose={()=>setDetail(null)} className="card-detail-modal"><div className="card-detail"><span className="eyebrow">{translatedDetail.id+1} / 78 · {t(translatedDetail.id<22?'Major Arcana':'Minor Arcana')}</span><h2>{translatedDetail.name}</h2><img className="detail-art" src={translatedDetail.image} alt={translatedDetail.name}/><div className="keyword-pills">{translatedDetail.keywords.map(keyword=><span key={keyword}>{t(keyword)}</span>)}</div><CardGuidance cardId={translatedDetail.id}/><blockquote>{translatedDetail.reflection}</blockquote><button className="secondary-button close-card-details" onClick={()=>setDetail(null)}>{t('Close card details')}</button></div></Modal>}

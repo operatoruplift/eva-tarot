@@ -13,6 +13,12 @@ const PROD_ORIGINS = ['https://evatarot.vercel.app','https://evara-omega.vercel.
 const LOCAL_ORIGINS = ['http://localhost:5173','http://localhost:3001','http://127.0.0.1:3001','http://127.0.0.1:3004'];
 export const PRODUCT_FIELDS = ['id','title_en','title_vi','description_en','description_vi','price_vnd','credits','category','kind','active','sort_order'];
 export const SETTINGS_FIELDS = ['pricing_mode','free_trial_credits','donations_enabled','bank_name','account_name','account_number','bank_bin','qr_image','qr_payload','support_email','hero_title_en','hero_title_vi','hero_description_en','hero_description_vi','announcement_en','announcement_vi','donation_suggested_vnd'];
+/** Public checkout needs routing details, never the account holder's legal name
+ * or an arbitrary QR/image that could encode it. Admin settings remain private. */
+export function publicCommerceSettings(settings: JsonRecord): JsonRecord {
+  const publicFields = SETTINGS_FIELDS.filter(key => !['account_name', 'qr_payload', 'qr_image'].includes(key));
+  return Object.fromEntries(publicFields.filter(key => Object.hasOwn(settings, key)).map(key => [key, settings[key]]));
+}
 export function validProduct(value: unknown): value is JsonRecord {
   return record(value) && keys(value,PRODUCT_FIELDS) && typeof value.id==='string' && /^[a-z0-9-]{1,64}$/.test(value.id)
     && shortText(value.title_en,100,1) && shortText(value.title_vi,100,1) && shortText(value.description_en,1000) && shortText(value.description_vi,1000)
@@ -109,7 +115,7 @@ export function createCommerceHandler(environment: Environment,fetcher: typeof f
    const catalog=async (admin=false)=>{
     const [products,settings]=await Promise.all([database(`eva_products?select=*&${admin?'':'active=eq.true&'}order=sort_order.asc,id.asc`),database('eva_settings?id=eq.true&select=config&limit=1')]);
     if (!Array.isArray(products)||!Array.isArray(settings)||!record(settings[0])||!record(settings[0].config)) throw new ApiError(503,'The price list is unavailable. Please try again.');
-    return {products,settings:settings[0].config};
+    return {products,settings:admin ? settings[0].config : publicCommerceSettings(settings[0].config)};
    };
    if (body.action==='catalog') { assertKeys([]); return json({catalog:await catalog()}); }
    if (body.action==='track_event') {

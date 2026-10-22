@@ -1,3 +1,5 @@
+import { readConnection } from './account-connection.ts';
+
 export type CommerceProduct = {
   id: string; title_en: string; title_vi: string; description_en?: string; description_vi?: string;
   price_vnd: number; credits: number; active: boolean; sort_order?: number; category?: string; kind?: 'credits' | 'consultation';
@@ -37,6 +39,8 @@ export class CommerceError extends Error {
 export function getDeviceToken(): string {
   if (typeof localStorage === 'undefined') throw new CommerceError('This browser cannot save your wallet. Allow site storage before making a payment.');
   try {
+    const connection = readConnection();
+    if (connection) return connection.account?.commerceToken ?? connection.guest.commerceToken;
     const saved = localStorage.getItem(DEVICE_KEY);
     if (saved && /^[a-f0-9]{64}$/.test(saved)) return saved;
     const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, '0')).join('');

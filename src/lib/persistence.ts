@@ -10,6 +10,14 @@ const FALLBACK_KEY = 'evara-data-v2';
 const FALLBACK_BASELINE_KEY = 'evara-data-v2-baseline';
 const CHANGE_KEY = 'evara-data-changed';
 const EMPTY: PersonalData = { profile: { name: '', onboarded: false }, sessions: [], practiceDays: [], dayNotes: {} };
+type PersistenceNamespace = { database: string; fallback: string; baseline: string; change: string; legacy: boolean };
+function persistenceNamespace(scope?: string): PersistenceNamespace {
+  if (scope === undefined) return { database: DATABASE, fallback: FALLBACK_KEY, baseline: FALLBACK_BASELINE_KEY, change: CHANGE_KEY, legacy: true };
+  if (!/^(?:account-)?[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(scope)) throw new Error('The saved-data account scope is invalid.');
+  const suffix = `:${scope.toLowerCase()}`;
+  return { database: DATABASE + suffix, fallback: FALLBACK_KEY + suffix, baseline: FALLBACK_BASELINE_KEY + suffix, change: CHANGE_KEY + suffix, legacy: false };
+}
+const emptyData = (): PersonalData => ({ profile: { ...EMPTY.profile }, sessions: [], practiceDays: [], dayNotes: {} });
 export const MAX_BACKUP_BYTES = 50 * 1024 * 1024;
 type Snapshot = { version: 2; revision: number; data: PersonalData };
 type Driver = { read: () => Promise<PersonalData | null>; write: (baseline: PersonalData, data: PersonalData, incoming?: PersonalData) => Promise<PersonalData>; close: () => void };
@@ -86,10 +94,10 @@ function mergeSession(original: Session | undefined, local: Session, remote: Ses
   return merged;
 }
 
-async function openDriver(): Promise<Driver> {
+async function openDriver(namespace: PersistenceNamespace): Promise<Driver> {
   if (typeof indexedDB === 'undefined') throw new Error('IndexedDB is unavailable.');
   const database = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DATABASE, 1);
+    const request = indexedDB.open(namespace.database, 1);
     let failed = false;
     request.onupgradeneeded = () => request.result.createObjectStore(STORE);
     request.onerror = () => { failed = true; reject(request.error); };
@@ -131,9 +139,9 @@ async function openDriver(): Promise<Driver> {
     close: () => database.close(),
   };
 }
-function fallbackDriver(): Driver {
+function fallbackDriver(namespace: PersistenceNamespace): Driver {
   const read = (): PersonalData | null => {
-    const stored = localStorage.getItem(FALLBACK_KEY);
+    const stored = localStorage.getItem(namespace.fallback);
     if (stored === null) return null;
     const parsed: unknown = JSON.parse(stored);
     if (!validPersonalData(parsed)) throw new Error('Saved data could not be read.');
@@ -148,8 +156,8 @@ function fallbackDriver(): Driver {
       if (!validPersonalData(merged)) throw new Error('The browser could not save your data.');
       // Keep the baseline from when the outage began, not the latest fallback
       // snapshot, so recovery can distinguish offline edits from stale fields.
-      if (!current) localStorage.setItem(FALLBACK_BASELINE_KEY, JSON.stringify(baseline));
-      localStorage.setItem(FALLBACK_KEY, JSON.stringify(merged));
+      if (!current) localStorage.setItem(namespace.baseline, JSON.stringify(baseline));
+      localStorage.setItem(namespace.fallback, JSON.stringify(merged));
       return merged;
     },
     close: () => {},
@@ -160,17 +168,17 @@ export function reconcileFallbackData(stored: PersonalData, fallback: PersonalDa
   return mergePersonalData(beforeOutage ?? EMPTY, fallback, stored);
 }
 
-async function promoteFallback(connection: Driver, stored: PersonalData | null): Promise<PersonalData | null> {
-  const fallback = readStorage<PersonalData | null>(FALLBACK_KEY, null, validPersonalData);
+async function promoteFallback(connection: Driver, stored: PersonalData | null, namespace: PersistenceNamespace): Promise<PersonalData | null> {
+  const fallback = readStorage<PersonalData | null>(namespace.fallback, null, validPersonalData);
   if (!fallback) return stored;
-  const beforeOutage = readStorage<PersonalData | null>(FALLBACK_BASELINE_KEY, null, validPersonalData);
+  const beforeOutage = readStorage<PersonalData | null>(namespace.baseline, null, validPersonalData);
   const merged = stored ? reconcileFallbackData(stored, fallback, beforeOutage) : fallback;
   // A successful read is insufficient: first commit all fallback edits. An
   // aborted transaction must leave the recovery copy available on next launch.
   const committed = await connection.write(stored ?? EMPTY, merged);
   try {
-    const current = readStorage<PersonalData | null>(FALLBACK_KEY, null, validPersonalData);
-    if (equal(current, fallback)) localStorage.removeItem(FALLBACK_KEY);
+    const current = readStorage<PersonalData | null>(namespace.fallback, null, validPersonalData);
+    if (equal(current, fallback)) localStorage.removeItem(namespace.fallback);
   } catch { /* A duplicate recovery copy is safe; it will merge on next launch. */ }
   return committed;
 }
@@ -191,8 +199,25 @@ export function parseDataImport(text: string): PersonalData & { language?: strin
   return { ...normalize(data), ...(typeof value.language === 'string' ? { language: value.language } : {}) };
 }
 
-export function usePersistentData() {
-  const [data, setData] = useState<PersonalData>(readLegacyData);
+/** Explicit first-link import only. Account restoration never reads the guest journal. */
+export async function seedPersistentScope(scope: string, data: PersonalData): Promise<void> {
+  const namespace = persistenceNamespace(scope);
+  if (namespace.legacy || !validPersonalData(data)) throw new Error('The saved-data account import is invalid.');
+  const fallback = typeof indexedDB === 'undefined';
+  const connection = fallback ? fallbackDriver(namespace) : await openDriver(namespace);
+  try {
+    const existing = await connection.read();
+    const stored = fallback ? existing : await promoteFallback(connection, existing, namespace);
+    await connection.write(stored ?? EMPTY, stored ?? EMPTY, normalize(data));
+    try { localStorage.setItem(namespace.change, `${Date.now()}-${Math.random()}`); } catch { /* IndexedDB already committed. */ }
+  } finally { connection.close(); }
+}
+
+export function usePersistentData(scope?: string) {
+  // The caller remounts after flushing to change accounts; an existing mount
+  // never redirects a queued write or storage event into another namespace.
+  const [namespace] = useState(() => persistenceNamespace(scope));
+  const [data, setData] = useState<PersonalData>(() => namespace.legacy ? readLegacyData() : emptyData());
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState<PersistenceStatus>('loading');
   const [error, setError] = useState('');
@@ -229,12 +254,12 @@ export function usePersistentData() {
       try {
         // A failed primary open must not turn a possibly existing journal into
         // an apparently new, empty fallback journal.
-        connection = fallback ? fallbackDriver() : await openDriver();
+        connection = fallback ? fallbackDriver(namespace) : await openDriver(namespace);
         if (cancelled) { connection.close(); return; }
         driver.current = connection;
         setLimitedStorage(fallback);
         const existing = await connection.read();
-        const stored = fallback ? existing : await promoteFallback(connection, existing);
+        const stored = fallback ? existing : await promoteFallback(connection, existing, namespace);
         if (cancelled) return;
         baseline.current = stored ?? hydrationStart;
         if (stored) {
@@ -259,7 +284,7 @@ export function usePersistentData() {
       pendingImports.current = [];
       driver.current?.close(); driver.current = null; writing.current = false;
     };
-  }, [settleWaiters]);
+  }, [namespace, settleWaiters]);
 
   useEffect(() => {
     if (!ready || !driver.current || writing.current) return;
@@ -280,7 +305,7 @@ export function usePersistentData() {
       setStatus(equal(latest.current, desired) ? 'saved' : 'saving');
       succeeded = true;
       pendingImport?.resolve();
-      try { localStorage.setItem(CHANGE_KEY, `${Date.now()}-${Math.random()}`); } catch { /* IndexedDB already committed. */ }
+      try { localStorage.setItem(namespace.change, `${Date.now()}-${Math.random()}`); } catch { /* IndexedDB already committed. */ }
     }).catch(failure => {
       if (!mounted.current || driver.current !== connection) return;
       if (pendingImport) {
@@ -303,7 +328,7 @@ export function usePersistentData() {
       writing.current = false;
       if (mounted.current && succeeded) setAttempt(value => value + 1);
     });
-  }, [data, ready, attempt]);
+  }, [namespace, data, ready, attempt]);
 
   useEffect(() => {
     const refresh = () => {
@@ -317,10 +342,10 @@ export function usePersistentData() {
         setData(current => mergePersonalData(original, current, remote));
       }).catch(() => {}); // Existing data remains usable; a later write reports any storage failure.
     };
-    const changed = (event: StorageEvent) => { if (event.key === CHANGE_KEY) refresh(); };
+    const changed = (event: StorageEvent) => { if (event.key === namespace.change) refresh(); };
     window.addEventListener('storage', changed); window.addEventListener('focus', refresh);
     return () => { window.removeEventListener('storage', changed); window.removeEventListener('focus', refresh); };
-  }, [ready]);
+  }, [namespace, ready]);
 
   const setProfile: Dispatch<SetStateAction<Profile>> = useCallback(value => setData(current => ({ ...current, profile: typeof value === 'function' ? value(current.profile) : value })), []);
   const setSessions: Dispatch<SetStateAction<Session[]>> = useCallback(value => setData(current => ({ ...current, sessions: typeof value === 'function' ? value(current.sessions) : value })), []);
@@ -342,10 +367,10 @@ export function usePersistentData() {
     setStatus('loading');
     let recovery: Driver | null = null;
     const fallback = typeof indexedDB === 'undefined';
-    void (fallback ? Promise.resolve(fallbackDriver()) : openDriver()).then(async connection => {
+    void (fallback ? Promise.resolve(fallbackDriver(namespace)) : openDriver(namespace)).then(async connection => {
       recovery = connection;
       const existing = await connection.read();
-      const remote = fallback ? existing : await promoteFallback(connection, existing);
+      const remote = fallback ? existing : await promoteFallback(connection, existing, namespace);
       if (!mounted.current) { connection.close(); return; }
       driver.current = connection;
       setLimitedStorage(fallback); setNeedsRecovery(false);
@@ -356,7 +381,7 @@ export function usePersistentData() {
       }
       setError(''); setStatus(remote ? 'saved' : 'saving'); setAttempt(value => value + 1);
     }).catch(() => { recovery?.close(); if (mounted.current) { setNeedsRecovery(true); setStatus('error'); setError('Your saved data still cannot be opened. Export a copy before reloading.'); } }).finally(() => { recovering.current = false; });
-  }, []);
+  }, [namespace]);
   const flush = useCallback((): Promise<void> => {
     if (!mounted.current) return Promise.reject(new Error('The app closed before your latest changes could be saved.'));
     const current = persistenceState.current;

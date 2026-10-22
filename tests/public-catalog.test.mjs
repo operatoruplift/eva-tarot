@@ -21,11 +21,11 @@ test('a cached paid catalog cannot sell during an outage and a successful catalo
   assert.equal(canPurchaseProduct(manual, { pricing_mode: 'consultations' }, true), true);
   assert.equal(canPurchaseProduct(credit, {}, true), false);
 });
-test('public donation details preserve the exact owner QR and recipient', () => {
+test('public donation details preserve bank routing without exposing a legal name', () => {
   assert.equal(PUBLIC_DONATION_DETAILS.qr_payload, SOURCE_DONATION_QR);
   assert.equal(PUBLIC_DONATION_DETAILS.account_number, '6886439999');
   assert.equal(PUBLIC_DONATION_DETAILS.bank_bin, '970407');
-  assert.equal(PUBLIC_DONATION_DETAILS.account_name, 'TRAN THI THANH HUYEN');
+  assert.equal(Object.hasOwn(PUBLIC_DONATION_DETAILS, 'account_name'), false);
 });
 test('donation fallback requires explicit unconfigured status and never overrides a pause or known bank settings', () => {
   assert.equal(publicDonationFallbackAllowed(undefined, true, false), true);

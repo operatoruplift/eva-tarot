@@ -247,9 +247,11 @@ export async function getReading(input: ReadingRequest): Promise<ReadingResult> 
       followUp: input.followUp ?? false,
       continuation: input.continuation ?? /^(please\s+)?(continue|go on|carry on|tiep tuc|viet tiep|hay tiep tuc)[.!?…]*$/i.test(input.question.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '')),
     });
-    attempt = await readingAttempts.acquire(input.requestKey, body);
     let walletHeaders: Record<string, string> = {};
     try { walletHeaders = getCommerceHeaders(); } catch { /* The server can still allow a free reading. */ }
+    // Bind the request to the connection that started it, before asynchronous
+    // hashing can yield to an account switch in another tab.
+    attempt = await readingAttempts.acquire(input.requestKey, body);
     if (controller.signal.aborted) throw new DOMException('Reply stopped.', 'AbortError');
     const response = await fetch('/api/reading', {
       method: 'POST',
