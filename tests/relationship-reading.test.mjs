@@ -50,6 +50,21 @@ test('both reader prompts offer a person-first couple overview in English and Vi
   }
 });
 
+test('hosted couple prose distinguishes observations from inferred mutual feelings and avoids repeated summaries', () => {
+  const en = hosted(makeInput('en')).instructions;
+  const vi = hosted(makeInput('vi')).instructions;
+  assert.match(en, /A warm reply does not establish that dates go well/);
+  assert.match(en, /Positive aspects must be grounded options or observations/);
+  assert.match(en, /only the five section headings/);
+  assert.match(en, /final practical step inside Advice/);
+  assert.match(en, /identify each name and position at least once/);
+  assert.match(vi, /Trả lời lời mời vui vẻ không có nghĩa/);
+  assert.match(vi, /Điểm tốt phải là điều đã kể hoặc một lựa chọn có ích/);
+  assert.match(vi, /chỉ dùng năm tiêu đề/);
+  assert.match(vi, /bước nhỏ cuối cùng nằm trong Lời khuyên/);
+  assert.match(vi, /nhắc tên và vị trí của mỗi lá ít nhất một lần/);
+});
+
 test('couple questions retain the actual one, three and ten-card draw and its fixed positions', () => {
   for (const count of [1, 3, 10]) {
     const input = makeInput('en', { cards: cards.slice(0, count) });
