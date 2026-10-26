@@ -122,6 +122,22 @@ test('a no-card couple conversation cannot invent a draw to fill the relationshi
   }
 });
 
+test('a no-card relationship follow-up answers only the requested side', () => {
+  for (const language of ['en', 'vi']) {
+    const question = language === 'vi' ? 'Còn phía Nam thì sao?' : 'And Sam’s side?';
+    const input = makeInput(language, { cards: [], followUp: true, question,
+      history: [{ role: 'user', content: examples[language] }],
+    });
+    const online = hosted(input);
+    const local = buildReadingContext(input);
+    assert.match(online.instructions, /narrow follow-up needs only the requested part|Câu hỏi tiếp chỉ về một phía thì trả lời đúng phần đó/);
+    assert.match(local.at(-1).content, /A narrow follow-up answers only the requested part, not the full overview/);
+    for (const text of [online.instructions, flatten(local)]) assert.match(text, /No cards were drawn/);
+    assert.ok(flatten(local).includes(examples[language]));
+    assert.ok(local.at(-1).content.includes(question));
+  }
+});
+
 test('long Vietnamese couple readings preserve corrections and all card facts within the local byte budget', () => {
   const opening = 'Năng lượng giữa Linh và Nam: mình muốn hiểu cả hai phía.';
   const correction = 'Ghi chú cuối: bọn mình vẫn đang yêu, không phải người yêu cũ.';
