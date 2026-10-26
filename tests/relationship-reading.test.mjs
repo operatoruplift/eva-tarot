@@ -43,6 +43,8 @@ test('both reader prompts offer a person-first couple overview in English and Vi
     const local = buildReadingContext(input);
     assertCoupleContract(online.instructions);
     assertCoupleContract(flatten(local), true);
+    assert.match(flatten(local), /Use all cards as shared ideas, not good\/bad traits/);
+    assert.match(flatten(local), /For other questions: For EVERY card/);
     assert.equal(online.messages.at(-1).content, input.question);
     assert.ok(local.at(-1).content.includes(input.question));
     assert.ok(!online.instructions.includes(input.question));
@@ -58,11 +60,15 @@ test('hosted couple prose distinguishes observations from inferred mutual feelin
   assert.match(en, /only the five section headings/);
   assert.match(en, /final practical step inside Advice/);
   assert.match(en, /identify each name and position at least once/);
+  assert.match(en, /Do not force a good and bad trait onto each person or card/);
+  assert.match(en, /calling a quiet partner stable or considerate is an unsupported trait/);
   assert.match(vi, /Trả lời lời mời vui vẻ không có nghĩa/);
   assert.match(vi, /Điểm tốt phải là điều đã kể hoặc một lựa chọn có ích/);
   assert.match(vi, /chỉ dùng năm tiêu đề/);
   assert.match(vi, /bước nhỏ cuối cùng nằm trong Lời khuyên/);
   assert.match(vi, /nhắc tên và vị trí của mỗi lá ít nhất một lần/);
+  assert.match(vi, /không ép mỗi lá hay mỗi người phải có một tính tốt và một tính xấu/);
+  assert.match(vi, /ổn định, biết giữ gìn hay quan tâm thì chưa có cơ sở/);
   for (const prompt of [en, vi]) {
     assert.match(prompt, /A card about reciprocity does not establish mutual interest/);
     const finalBrief = prompt === en ? 'When the latest request asks' : 'Khi câu hỏi mới nhất muốn xem';

@@ -99,7 +99,7 @@ function readingTask(input: ContextInput, selectedCount: number, language: strin
   return `Write a ${selectedCount}-card reflection in ${language} from the latest request, not the focus label alone.
 ${COUPLE_READING_FORMAT}
 For other questions: a heading with each exact name and spread position in order, then 2–3 connected paragraphs.
-For EVERY card, explain its simple meaning with a detail from their chat, a useful option (not praise), a conditional risk including for positive cards, why advice fits their limits, and what to do or say with one everyday example or practical implication. Cover all ${selectedCount} cards without repeating a full per-card reading after couple sections. An obstacle needs a downside or blind spot. Say when a connection is uncertain.
+For other questions: For EVERY card, explain its simple meaning with a detail from their chat, a useful option (not praise), a conditional risk including for positive cards, why advice fits their limits, and what to do or say with one everyday example or practical implication. Cover all ${selectedCount} cards once. An obstacle needs a downside or blind spot. Say when a connection is uncertain.
 ${synthesis}`;
 
 }
