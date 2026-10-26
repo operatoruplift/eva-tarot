@@ -63,6 +63,11 @@ test('hosted couple prose distinguishes observations from inferred mutual feelin
   assert.match(vi, /chỉ dùng năm tiêu đề/);
   assert.match(vi, /bước nhỏ cuối cùng nằm trong Lời khuyên/);
   assert.match(vi, /nhắc tên và vị trí của mỗi lá ít nhất một lần/);
+  for (const prompt of [en, vi]) {
+    assert.match(prompt, /A card about reciprocity does not establish mutual interest/);
+    const finalBrief = prompt === en ? 'When the latest request asks' : 'Khi câu hỏi mới nhất muốn xem';
+    assert.ok(prompt.indexOf(finalBrief) > prompt.indexOf('Response task:'), 'relationship-specific exceptions follow the generic card task');
+  }
 });
 
 test('couple questions retain the actual one, three and ten-card draw and its fixed positions', () => {
