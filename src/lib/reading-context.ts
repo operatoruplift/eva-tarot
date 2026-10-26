@@ -1,6 +1,7 @@
 import { cards as deck, type TarotCard } from '../data/tarot.ts';
 import { getCardGuidance } from '../data/card-guidance.ts';
 import { languageNames, spreadPositions, type ReadingLanguage } from '../data/spreads.ts';
+import { COUPLE_READING_FORMAT } from '../data/reading-style.ts';
 
 export type ContextMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 export type ContextInput = {
@@ -85,19 +86,20 @@ export function localOutputTokenLimit(input: Pick<ContextInput, 'cards' | 'follo
 function readingTask(input: ContextInput, selectedCount: number, language: string): string {
   const continuation = /^(please\s+)?(continue|go on|carry on|tiep tuc|viet tiep|hay tiep tuc)\b/i.test(input.question.trim().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
   if (continuation) {
-    const ending = selectedCount > 1 ? 'Finish remaining card sections in everyday terms, connect the cards, and prioritize one small next step.'
+    const ending = selectedCount > 1 ? 'Finish the remaining reading sections in the existing outline, connect the cards, and prioritize one small next step.'
       : selectedCount === 1 ? 'Finish this card in everyday terms and suggest one small next step. Do not introduce other cards.'
         : 'Finish in everyday terms. No cards were drawn, so do not invent a tarot reading.';
     return `Continue the previous answer in ${language} from where it ended. Do not restart or repeat the introduction. ${ending}`;
   }
-  if (!selectedCount) return `Answer in ${language} from their concern and named feelings. Explain your suggestion with a familiar example that fits their limits. Prioritize one small next step, not a list of homework. No cards were drawn: do not pretend there is a tarot reading. If context is thin, ask one useful question instead of guessing.`;
-  if (input.followUp) return `Answer this follow-up in ${language} from the latest message and earlier user context. Acknowledge corrections; do not repeat the whole spread. Explain plainly what your advice means in their day, why it may help, and one small thing to try. Tie any example to a shared detail; do not invent motives or abilities. Cards are reflection prompts; leave aside any that do not fit. Respect their feelings and limits. Ask only if needed. Keep clarifications brief; add detail when useful.`;
+  if (!selectedCount) return `Answer in ${language} from their actual concern. No cards were drawn: do not pretend there is a tarot reading. If context is thin, ask one useful question instead of guessing. For a couple question, discuss each person's possible perspective, positives, difficulties and advice from shared facts, not known private thoughts. Do not assume the user is a partner. Otherwise answer their current topic. Give one feasible next step with a reason.`;
+  if (input.followUp) return `Answer this follow-up in ${language} from the latest message and earlier user context. Acknowledge corrections; do not repeat the whole spread. A narrow couple follow-up needs only the requested person's side or advice, not the full outline; a requested overview covers both people, positives, difficulties and advice. Possible thoughts are not known private thoughts. Do not assume the user is a partner. Explain what the advice means, why it fits and one small thing to try. Examples must fit shared facts and limits. Follow a new topic; keep clarifications brief.`;
   const synthesis = selectedCount === 1
     ? 'Finally, connect this single card to the question. Do not introduce other cards.'
     : 'Finally, explain a connection or tension between at least two named cards. Pick one small step; others are optional.';
-  return `Write a ${selectedCount}-card reflection in ${language}. Open briefly with their situation and named feelings.
-For EVERY card in order: a heading with its exact name and spread position, then 2–3 connected paragraphs, not five labeled sections.
-Explain the simple meaning with a detail from their chat and its daily implication. Weave in a useful option (not praise), a conditional risk including for positive cards, why your advice fits their limits, and what to do or say next with one everyday example or practical implication. Let paragraph lengths vary naturally. Cover all ${selectedCount} cards. An obstacle needs a downside or blind spot. Do not force links or invent reversals; say when a connection is uncertain.
+  return `Write a ${selectedCount}-card reflection in ${language} from the latest request, not the focus label alone.
+${COUPLE_READING_FORMAT}
+For other questions: a heading with each exact name and spread position in order, then 2–3 connected paragraphs.
+For EVERY card, explain its simple meaning with a detail from their chat, a useful option (not praise), a conditional risk including for positive cards, why advice fits their limits, and what to do or say with one everyday example or practical implication. Cover all ${selectedCount} cards without repeating a full per-card reading after couple sections. An obstacle needs a downside or blind spot. Say when a connection is uncertain.
 ${synthesis}`;
 
 }

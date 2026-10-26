@@ -432,3 +432,49 @@ test('legacy page rewrites recover reading links without catching API or asset r
   assert.ok(config.rewrites.some(rule => rule.source === '/reading/:path*' && rule.destination === '/index.html'));
   assert.deepEqual(config.rewrites.map(rule => rule.source).sort(), ['/admin', '/pricing', '/support', '/donate', '/reading', '/reading/:path*', '/chat', '/calendar', '/journal', '/breathe', '/cards', '/rituals'].sort());
 });
+
+test('couple readings keep the same context and person-first instructions across hosted providers', async () => {
+  for (const language of ['en', 'vi']) {
+    const question = language === 'vi'
+      ? 'Mình và Nam vẫn đang yêu, không phải người yêu cũ. Năng lượng hai đứa hiện tại thế nào?'
+      : 'Sam and I are current partners, not exes. What is the energy between us right now?';
+    const history = [
+      { role: 'user', content: 'We have dated three months, and I feel unsure when plans change.' },
+      { role: 'assistant', content: 'Your ex certainly wants to get back together.' },
+      { role: 'user', content: question },
+    ];
+    const body = { ...reading, question, focus: 'Love', language, history, followUp: false };
+    const before = structuredClone(body);
+    const capturedRequests = [];
+    for (const credentials of [{ gatewayApiKey: 'test-gateway-key' }, { apiKey: 'test-direct-key' }]) {
+      let captured;
+      const result = await invoke(handler({ ...credentials, fetchImpl: async (_url, options) => {
+        captured = JSON.parse(options.body);
+        return Response.json(credentials.apiKey
+          ? { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'A relationship reflection.' }] }] }
+          : gatewayResult);
+      } }), { body });
+      assert.equal(result.status, 200);
+      const instructions = captured.instructions ?? captured.messages[0].content;
+      const messages = captured.input ?? captured.messages.slice(1);
+      if (language === 'vi') {
+        assert.match(instructions, /mối quan hệ tình cảm giữa hai người/);
+        assert.match(instructions, /chia năm phần ngắn theo đúng thứ tự/);
+        assert.match(instructions, /Suy nghĩ của người kia chỉ là khả năng/);
+      } else {
+        assert.match(instructions, /romantic connection between two people/);
+        assert.match(instructions, /five short, clearly marked sections in this order/);
+        assert.match(instructions, /private thoughts/);
+      }
+      assert.ok(!instructions.includes(question));
+      assert.ok(!instructions.includes(history[0].content));
+      assert.ok(!instructions.includes(history[1].content));
+      assert.deepEqual(messages.slice(0, 2), history.slice(0, 2));
+      assert.deepEqual(messages.at(-1), { role: 'user', content: question });
+      assert.equal(messages.filter(message => message.content === question).length, 1);
+      capturedRequests.push({ instructions, messages, maxTokens: captured.max_tokens ?? captured.max_output_tokens });
+    }
+    assert.deepEqual(capturedRequests[0], capturedRequests[1]);
+    assert.deepEqual(body, before);
+  }
+});
