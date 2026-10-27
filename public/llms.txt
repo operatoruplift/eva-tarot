@@ -1,0 +1,14 @@
+# Eva Tarot
+> Conversational AI tarot reading app that connects traditional Rider–Waite–Smith card meanings to your real situation, with practical advice in English and Vietnamese. Works in the browser and can be added to your home screen.
+
+## Pages
+- [Home / start a reading](https://evatarot.xyz/)
+- [Pricing](https://evatarot.xyz/pricing): current reading catalog and payment instructions
+- [Support](https://evatarot.xyz/support)
+
+## How it works
+- Eva's chat uses AI to interpret drawn cards with Rider–Waite–Smith meanings and the context you share.
+- Online AI: 1 credit per completed reply, including follow-ups. On-device AI does not use online credits.
+- Reading history and notes save in your browser on your device.
+- No tarot knowledge needed; Eva explains each card in everyday language.
+- Readings are for reflection; they cannot guarantee future events or reveal another person's thoughts.
