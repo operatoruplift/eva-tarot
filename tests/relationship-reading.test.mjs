@@ -55,20 +55,20 @@ test('both reader prompts offer a person-first couple overview in English and Vi
 test('hosted couple prose distinguishes observations from inferred mutual feelings and avoids repeated summaries', () => {
   const en = hosted(makeInput('en')).instructions;
   const vi = hosted(makeInput('vi')).instructions;
-  assert.match(en, /A warm reply does not establish that dates go well/);
-  assert.match(en, /Positive aspects must be grounded options or observations/);
-  assert.match(en, /only the five section headings/);
-  assert.match(en, /final practical step inside Advice/);
-  assert.match(en, /identify each name and position at least once/);
+  assert.match(en, /A warm reply establishes a warm reply, not affection/);
+  assert.match(en, /an observed positive or an available option/);
+  assert.match(en, /exactly five unnumbered headings/);
+  assert.match(en, /synthesis and closing step here; stop after this section/);
+  assert.match(en, /Name each card and its position once/);
   assert.match(en, /Do not force a good and bad trait onto each person or card/);
-  assert.match(en, /calling a quiet partner stable or considerate is an unsupported trait/);
-  assert.match(vi, /Trả lời lời mời vui vẻ không có nghĩa/);
-  assert.match(vi, /Điểm tốt phải là điều đã kể hoặc một lựa chọn có ích/);
-  assert.match(vi, /chỉ dùng năm tiêu đề/);
-  assert.match(vi, /bước nhỏ cuối cùng nằm trong Lời khuyên/);
-  assert.match(vi, /nhắc tên và vị trí của mỗi lá ít nhất một lần/);
+  assert.match(en, /use neutral pronouns when unspecified/);
+  assert.match(vi, /Hưởng ứng vui vẻ chỉ cho biết cách đáp lại/);
+  assert.match(vi, /Điểm tốt là hành động tích cực đã được kể hoặc một lựa chọn/);
+  assert.match(vi, /đúng năm tiêu đề không đánh số/);
+  assert.match(vi, /bước cuối vào Lời khuyên rồi dừng/);
+  assert.match(vi, /Nhắc tên và vị trí gốc mỗi lá một lần/);
   assert.match(vi, /không ép mỗi lá hay mỗi người phải có một tính tốt và một tính xấu/);
-  assert.match(vi, /ổn định, biết giữ gìn hay quan tâm thì chưa có cơ sở/);
+  assert.match(vi, /Một người ít chủ động có tính cách thế nào thì chưa biết/);
   for (const prompt of [en, vi]) {
     assert.match(prompt, /A card about reciprocity does not establish mutual interest/);
     const finalBrief = prompt === en ? 'When the latest request asks' : 'Khi câu hỏi mới nhất muốn xem';
