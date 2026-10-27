@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-27",
+  "synthetic": true,
+  "applicationSource": "fa0fd32",
+  "evaluationSourceBase": "495a55b",
+  "deploymentId": "dpl_21uFgNGYHetNxQYavWEMMTwZmgai",
+  "deploymentProtected": true,
+  "promoted": false,
+  "authentication": "project-attributed OIDC; direct and Gateway API-key precedence disabled only in temporary evaluation harness",
+  "status": "blocked_before_inference",
+  "gateway": {
+    "requestedModel": "openai/gpt-5.4",
+    "reportedModel": null,
+    "generationId": null,
+    "status": 403,
+    "errorCode": "no_providers_available",
+    "accessHint": "free_tier_requires_paid_credits",
+    "promptTokens": null,
+    "completionTokens": null,
+    "totalTokens": null,
+    "reasoningTokens": null
+  },
+  "english": {
+    "appStatus": 503,
+    "durationSeconds": 5.319625,
+    "response": {
+      "error": "Online AI is not connected right now. Your conversation is saved; please try again later.",
+      "code": "AI_CONFIGURATION",
+      "creditStatus": "refunded"
+    }
+  },
+  "vietnamese": {
+    "attempted": false,
+    "reason": "Same account/model access restriction; no language-dependent retry"
+  },
+  "budgetBefore": {
+    "limitAmount": 5,
+    "currentSpend": 0.9791067,
+    "refreshPeriod": "none",
+    "active": true
+  },
+  "budgetAfter": {
+    "limitAmount": 5,
+    "currentSpend": 0.9791067,
+    "refreshPeriod": "none",
+    "active": true
+  },
+  "spendDelta": 0,
+  "cleanup": {
+    "syntheticWalletsRemaining": 0,
+    "syntheticReadingsRemaining": 0,
+    "syntheticEventsRemaining": 0,
+    "syntheticUsageLedgerRemaining": 0,
+    "capabilityHeadersDeleted": true
+  },
+  "topupQuote": {
+    "creditsUsd": 10,
+    "processingFeeUsd": 0.59,
+    "estimatedTaxUsd": 0,
+    "totalUsd": 10.59,
+    "autoReload": false,
+    "paid": false,
+    "monthlyFreeAllowanceEndsOnPaidTransition": true
+  }
+}

@@ -51,3 +51,13 @@ The remaining quality requirement is consistent restraint: describe the reported
 Automated tests verify prompt structure, context boundaries, card facts and budget limits. Mocked replies cannot establish writing quality; the actual samples above are why this candidate is not accepted yet. This small fixture pair also does not establish quality across other relationship stages, languages or on-device models.
 
 All ten synthetic test wallets, readings, events and usage-ledger records were cleaned, with zero remaining verified; temporary request headers were deleted. No real customer data or credential values are included in this report.
+
+## GPT-5.4 evaluation attempt - 27 October 2026
+
+**Status: blocked before inference, not a model-quality failure.** The user approved evaluating GPT-5.4 within the existing US$5 non-refreshing project cap. An isolated OIDC evaluation worktree at `/tmp/eva-gpt54-eval-20261027` requested `openai/gpt-5.4` on protected deployment `dpl_21uFgNGYHetNxQYavWEMMTwZmgai`, [evaluation preview](https://evara-g9fscocc1-operatoruplift.vercel.app). This deployment must never be promoted as the application release; the public site remains unchanged.
+
+The first English fixture call returned app HTTP **503**, `AI_CONFIGURATION`, and `creditStatus: refunded` in **5.319625 seconds**. The sanitized Gateway audit recorded upstream HTTP **403**, `no_providers_available`, with access hint `free_tier_requires_paid_credits`. No model text, generation or usage was returned, so no editorial assessment of GPT-5.4 is possible. The Vietnamese call was skipped because the same model/account access restriction applies.
+
+Before and after this attempt, the project budget was identical: `currentSpend: 0.9791067`, `limit: 5`, active, `refresh: none`. The cap was not increased. The one synthetic wallet, refunded reading and ledger records were cleaned and verified absent; the unused Vietnamese capability never created a wallet. Temporary request headers were deleted.
+
+The browser quoted a minimum **US$10** Gateway credit purchase plus a **US$0.59** fee: **US$10.59 total**, with estimated tax **US$0**. Automatic reload was disabled, and **no purchase was made**. This credit purchase would be separate from the project's US$5 usage cap. [Vercel's pricing documentation](https://vercel.com/docs/ai-gateway/pricing) states that switching from free to paid use ends the monthly free allowance. The quote and model-access restriction do not establish approval for that purchase or any budget increase.
