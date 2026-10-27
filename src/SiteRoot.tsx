@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { LandingPage } from './components/LandingPage';
+import { TermsPage } from './components/TermsPage';
 import { Brand } from './components/Brand';
 import ReadingApp from './App';
 import { siteSurface } from './lib/site-routes';
@@ -71,6 +72,7 @@ export default function SiteRoot() {
       {surface === 'pricing' && <Pricing key={readerScope ?? 'guest-legacy'} onStart={resumeReader} onHome={() => go('welcome')} />}
       {surface === 'support' && <Pricing key={readerScope ?? 'guest-legacy'} donationOnly onStart={resumeReader} onHome={() => go('welcome')} />}
       {surface === 'admin' && <Admin onHome={() => go('welcome')} />}
+      {surface === 'terms' && <TermsPage onHome={() => go('welcome')} />}
       {/* Preserve an active reader while visiting pricing; its response can still save. */}
       {appStarted && <div className="site-reader" hidden={surface !== 'app'}>{connection.error ? <main className="site-opening" role="alert"><Brand/><p>{connection.error}</p><button className="secondary-button" onClick={() => setConnection(readScope())}>Retry storage access</button><a href="#welcome">Explore Eva Tarot</a></main> : <ReadingApp key={readerScope ?? 'guest-legacy'} personalDataScope={readerScope} onLeaveReader={rememberActiveReader} onAccountNotice={setAccountNotice} />}</div>}
     </Suspense>

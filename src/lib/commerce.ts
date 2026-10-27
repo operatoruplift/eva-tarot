@@ -20,6 +20,8 @@ export type CommerceOrder = {
   product_snapshot?: CommerceProduct; product_title_en?: string; product_title_vi?: string; product_title?: string;
   contact_email?: string | null; created_at: string; updated_at?: string; paid_at?: string | null;
   transfer_reference?: string; reference?: string; qr_payload?: string; note?: string | null; payment_note?: string;
+  customer_note?: string | null; schedule_note?: string | null;
+  booking_status?: 'none' | 'awaiting_payment' | 'paid' | 'scheduled' | 'completed' | 'cancelled';
   wallet_id?: string; [key: string]: unknown;
 };
 export type WalletResponse = { wallet: CommerceWallet; orders: CommerceOrder[] };

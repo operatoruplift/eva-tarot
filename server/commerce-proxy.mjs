@@ -1,5 +1,6 @@
 import { isIP } from 'node:net';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { getSharedLocalCommerce, localCommerceEnabled } from './local-commerce.mjs';
 
 export class CommerceError extends Error {
   constructor(status,message,code='commerce_unavailable') { super(message); this.status=status; this.code=code; }
@@ -7,7 +8,7 @@ export class CommerceError extends Error {
 const validToken=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
 const validUuid=value=>typeof value==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const record=value=>value&&typeof value==='object'&&!Array.isArray(value);
-const PUBLIC_ACTIONS=new Set(['catalog','wallet','create_order','create_donation','transfer_sent','record_event','track_event','admin_dashboard','admin_update_product','admin_update_settings','admin_update_customer','admin_confirm_payment','admin_reject_payment']);
+const PUBLIC_ACTIONS=new Set(['catalog','wallet','create_order','create_donation','transfer_sent','record_event','track_event','admin_dashboard','admin_update_product','admin_update_settings','admin_update_customer','admin_confirm_payment','admin_reject_payment','admin_update_booking']);
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 function config(options={}) {
   return {
@@ -34,6 +35,28 @@ async function invoke(configuration,body,headers={},signal) {
   if (!record(result)) throw new CommerceError(503,'Payments returned an invalid response. Please try again.');
   return result;
 }
+export async function confirmRemoteTransfer(payment, options={}) {
+  const configuration=config(options.env ? { ...options, supabaseUrl: options.supabaseUrl ?? options.env.SUPABASE_URL, publicKey: options.publicKey ?? options.env.SUPABASE_PUBLISHABLE_KEY ?? options.env.SUPABASE_ANON_KEY, internalKey: options.internalKey ?? options.env.EVA_COMMERCE_INTERNAL_KEY } : options);
+  if (!configuration.url || !configuration.key || !validToken(configuration.internalKey)) throw new CommerceError(503,'The payment webhook is not connected to the order store.');
+  return invoke(configuration,{ action:'webhook_confirm', reference:payment.reference, amountVnd:payment.amountVnd, externalId:payment.externalId || '' },{ 'X-Eva-Internal':configuration.internalKey });
+}
+function explicitRemote(options) {
+  return options.supabaseUrl !== undefined || options.publicKey !== undefined || options.internalKey !== undefined;
+}
+function usesLocalCommerce(options) {
+  if (options.localCommerce === true) return true;
+  if (explicitRemote(options)) return false;
+  return localCommerceEnabled();
+}
+function normalizeReservation(reservation, deviceToken, requestId) {
+  if (reservation.status==='completed'&&reservation.response) reservation.response=decryptReadingResponse(reservation.response,deviceToken,requestId);
+  if (reservation.status==='expired') throw new CommerceError(409,'This reading response has expired. Please begin a new reading.','reading_expired');
+  if (!reservation.allowed) {
+    if (reservation.status==='insufficient_credits') throw new CommerceError(402,'Your wallet needs a reading credit. Choose a package to continue.','credits_required');
+    throw new CommerceError(409,reservation.status==='reserved'?'This reading is still being prepared. Please wait before retrying.':'This reading request has already ended. Please start a new reading.',reservation.status==='reserved'?'reading_in_progress':'reading_ended');
+  }
+  return reservation;
+}
 async function readBody(request) {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type']??'')) throw new CommerceError(415,'Please send JSON.');
   if (Number(request.headers['content-length'])>32768) throw new CommerceError(413,'This request is too large.');
@@ -57,6 +80,10 @@ export function createCommerceProxyHandler(options={}) {
       if (origin) { try { const parsed=new URL(origin); if (!['http:','https:'].includes(parsed.protocol)||parsed.host!==request.headers.host) throw new Error(); } catch { throw new CommerceError(403,'Open Eva Tarot to continue.'); } }
       const body=await readBody(request);
       if (!record(body)||!PUBLIC_ACTIONS.has(body.action)) throw new CommerceError(400,'This action is not supported.');
+      if (usesLocalCommerce(options)) {
+        const result=await getSharedLocalCommerce().handle(body,{ deviceToken:typeof request.headers['x-eva-device']==='string'?request.headers['x-eva-device']:'', authorization:typeof request.headers.authorization==='string'?request.headers.authorization:'' });
+        return send(result.status,result.body);
+      }
       const headers={};
       // Deliberate allowlist: no browser header can forward the internal secret.
       if (typeof request.headers['x-eva-device']==='string') headers['X-Eva-Device']=request.headers['x-eva-device'];
@@ -105,6 +132,12 @@ export function createCommerceReadingClient(options={}) {
   };
   return {
     async reserve({deviceToken,requestId,input,signal,clientAddress}) {
+      if (usesLocalCommerce(options)) {
+        if (!validToken(deviceToken)) throw new CommerceError(401,'Open your wallet on this device to begin a reading.','wallet_required');
+        if (!validUuid(requestId)) throw new CommerceError(400,'A private reading reference is required. Please try again.');
+        try { return normalizeReservation(getSharedLocalCommerce().reserveReading({ deviceToken, requestId, fingerprint:sha256(JSON.stringify(input)) }), deviceToken, requestId); }
+        catch (error) { if (error instanceof CommerceError) throw error; throw new CommerceError(error?.status===409?409:503, error?.status===409?'This reading request has already ended. Please start a new reading.':'Your reading credit could not be checked. Please try again.', error?.status===409?'reading_ended':'commerce_unavailable'); }
+      }
       const configuration=settings();
       if (!configuration.url||!configuration.key) {
         if (['paid','free_trial'].includes(configuration.pricingMode)) throw new CommerceError(503,'The reading payment service is not configured. Please try again later.');
@@ -119,23 +152,26 @@ export function createCommerceReadingClient(options={}) {
       const response=await internal({action:'reading_reserve',requestId,fingerprint:sha256(JSON.stringify(input))},deviceToken,signal,clientAddress);
       const reservation=response.reservation;
       if (!record(reservation)||typeof reservation.required!=='boolean'||typeof reservation.allowed!=='boolean') throw new CommerceError(503,'Your reading credit could not be checked. Please try again.');
-      if (reservation.status==='completed'&&reservation.response) reservation.response=decryptReadingResponse(reservation.response,deviceToken,requestId);
-      if (reservation.status==='expired') throw new CommerceError(409,'This reading response has expired. Please begin a new reading.','reading_expired');
-      if (!reservation.allowed) {
-        if (reservation.status==='insufficient_credits') throw new CommerceError(402,'Your wallet needs a reading credit. Choose a package to continue.','credits_required');
-        throw new CommerceError(409,reservation.status==='reserved'?'This reading is still being prepared. Please wait before retrying.':'This reading request has already ended. Please start a new reading.',reservation.status==='reserved'?'reading_in_progress':'reading_ended');
-      }
-      return reservation;
+      return normalizeReservation(reservation,deviceToken,requestId);
     },
     async finish({deviceToken,requestId,response,signal,clientAddress}) {
-      const result=await internal({action:'reading_finish',requestId,response:encryptReadingResponse(response,deviceToken,requestId)},deviceToken,signal,clientAddress);
+      const encrypted=encryptReadingResponse(response,deviceToken,requestId);
+      if (usesLocalCommerce(options)) {
+        if (getSharedLocalCommerce().finishReading({ deviceToken, requestId, response:encrypted })!==true) throw new CommerceError(503,'The reading result could not be finalized. Please keep your answer and check your wallet later.');
+        return { ok:true };
+      }
+      const result=await internal({action:'reading_finish',requestId,response:encrypted},deviceToken,signal,clientAddress);
       if (result.ok!==true) throw new CommerceError(503,'The reading result could not be finalized. Please keep your answer and check your wallet later.');
       return result;
     },
     async recordCompleted({deviceToken,requestId,signal,clientAddress}) {
       if (!validUuid(requestId)) throw new CommerceError(400,'A valid reading reference is required.');
+      if (usesLocalCommerce(options)) return { ok:true };
       return internal({action:'reading_record_event',requestId},deviceToken,signal,clientAddress);
     },
-    async refund({deviceToken,requestId,signal,clientAddress}) { return internal({action:'reading_refund',requestId},deviceToken,signal,clientAddress); },
+    async refund({deviceToken,requestId,signal,clientAddress}) {
+      if (usesLocalCommerce(options)) return { ok:getSharedLocalCommerce().refundReading({ deviceToken, requestId })===true };
+      return internal({action:'reading_refund',requestId},deviceToken,signal,clientAddress);
+    },
   };
 }

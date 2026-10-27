@@ -7,6 +7,7 @@ import { cards } from '../src/data/tarot.ts';
 import { readingCounts, readingLanguages } from '../src/data/spreads.ts';
 import { buildHostedReadingPrompt } from './reading-prompt.mjs';
 import { CommerceError, createCommerceProxyHandler, createCommerceReadingClient } from './commerce-proxy.mjs';
+import { createPaymentWebhookHandler } from './payments-webhook.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MAX_BODY_BYTES = 40_960;
@@ -176,6 +177,7 @@ export function createRequestHandler({
   rateWindowMs = 10 * 60_000,
   commerceClient = createCommerceReadingClient(),
   commerceHandler = createCommerceProxyHandler(),
+  paymentWebhookHandler = createPaymentWebhookHandler(),
 } = {}) {
   // This limit is instance-local; it is shared by requests in one warm function.
   const requestsByAddress = new Map();
@@ -190,6 +192,7 @@ export function createRequestHandler({
     try {
       const pathname = routePath ?? new URL(request.url ?? '/', 'http://localhost').pathname;
       if (pathname === '/api/commerce') return await commerceHandler(request, response);
+      if (pathname === '/api/payments/webhook') return await paymentWebhookHandler(request, response);
       if (pathname === '/api/health') {
         if (request.method !== 'GET') throw new HttpError(405, 'This method is not supported.');
         if (hostedAIEnabled !== true) return sendJson(response, 200, { mode: 'disabled' });

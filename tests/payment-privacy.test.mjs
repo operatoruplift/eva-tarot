@@ -9,9 +9,9 @@ import { SOURCE_DONATION_QR, buildVietQR } from '../src/lib/vietqr.ts';
 
 const source = await readFile(new URL('../src/components/CommercePage.tsx', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(`${source}\nexport { BankDetails, paymentPayload, DirectDonation };`, { compilerOptions: { module: ts.ModuleKind.ESNext, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-const presentation = `data:text/javascript;base64,${Buffer.from('export function Brand(){return null;} export function Logo(){return null;} export function Modal(){return null;} export function useLanguage(){return {language:"en"};}').toString('base64')}`;
+const presentation = `data:text/javascript;base64,${Buffer.from('export function Brand(){return null;} export function Logo(){return null;} export function Modal(){return null;} export function CommerceLanguage(){return null;} export function useLanguage(){return {language:"en"};}').toString('base64')}`;
 const rewritten = compiled.replace(/import\s+["']\.\/commerce\.css["'];?/g, '').replace(/from ["']([^"']+)["']/g, (_, specifier) => {
-  if (['./Brand', './Modal', '../lib/i18n'].includes(specifier)) return `from ${JSON.stringify(presentation)}`;
+  if (['./Brand', './Modal', './CommerceLanguage', '../lib/i18n'].includes(specifier)) return `from ${JSON.stringify(presentation)}`;
   if (specifier.startsWith('../lib/')) return `from ${JSON.stringify(new URL(`../src/lib/${specifier.split('/').at(-1)}.ts`, import.meta.url).href)}`;
   return `from ${JSON.stringify(import.meta.resolve(specifier))}`;
 });
