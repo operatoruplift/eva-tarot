@@ -61,3 +61,9 @@ The first English fixture call returned app HTTP **503**, `AI_CONFIGURATION`, an
 Before and after this attempt, the project budget was identical: `currentSpend: 0.9791067`, `limit: 5`, active, `refresh: none`. The cap was not increased. The one synthetic wallet, refunded reading and ledger records were cleaned and verified absent; the unused Vietnamese capability never created a wallet. Temporary request headers were deleted.
 
 The browser quoted a minimum **US$10** Gateway credit purchase plus a **US$0.59** fee: **US$10.59 total**, with estimated tax **US$0**. Automatic reload was disabled, and **no purchase was made**. This credit purchase would be separate from the project's US$5 usage cap. [Vercel's pricing documentation](https://vercel.com/docs/ai-gateway/pricing) states that switching from free to paid use ends the monthly free allowance. The quote and model-access restriction do not establish approval for that purchase or any budget increase.
+
+## User decision - 27 October 2026
+
+The user chose **“Keep free tier and leave the update staged.”** This resolves the pending purchase/approval question: no credit purchase, GPT-5.4 retry or public promotion will follow. Retain the free tier, the current live release and the existing **US$5 non-refreshing project cap**.
+
+This decision leaves the candidate staged; it does not convert the failed editorial acceptance into a quality pass. GPT-5.4 prose quality remains untested because its request was blocked before inference.
