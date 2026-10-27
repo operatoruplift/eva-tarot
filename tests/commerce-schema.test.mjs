@@ -30,7 +30,10 @@ test('commerce database invariants use real row locks, grants, and transactions'
   await sql(`update public.eva_products set price_vnd=26000 where id='one-question'`);
   try {const retried=await order(device,'one-question',key);assert.equal(retried.id,first.id);assert.equal(retried.amount_vnd,25000);assert.equal(retried.product_snapshot.price_vnd,25000);}
   finally {await sql(`update public.eva_products set price_vnd=25000 where id='one-question'`);}
-  await assert.rejects(order(device,'missing-product'));await assert.rejects(order(device,'astrology'));
+  await assert.rejects(order(device,'missing-product'));
+  await sql(`update public.eva_products set active=false where id='astrology'`);
+  try { await assert.rejects(order(device,'astrology')); }
+  finally { await sql(`update public.eva_products set active=true where id='astrology'`); }
  });
  await t.test('concurrent admin confirmations credit the same order exactly once',async()=>{
   const device=hash(),created=await order(device,'five-questions');
@@ -76,10 +79,12 @@ test('commerce database invariants use real row locks, grants, and transactions'
   await sql(`update public.eva_reading_reservations set created_at=now()-interval '6 minutes' where id='${request}'`);
   assert.equal((await json(`select public.commerce_wallet('${device}')`)).credits,1);assert.equal((await json(`select public.commerce_wallet('${device}')`)).credits,1);
  });
- await t.test('free mode cannot sell unnecessary AI credits, manual unsupported services remain inactive',async()=>{
+ await t.test('consultations mode still blocks AI credit sales and human consultations can be booked',async()=>{
   await sql(`update public.eva_settings set config=config||'{"pricing_mode":"consultations"}'::jsonb where id=true`);
   await assert.rejects(order(hash()));
-  const rows=await json(`select jsonb_agg(jsonb_build_object('id',id,'active',active)) from public.eva_products where id in ('mother-baby','lenormand','astrology')`);assert.ok(rows.every(row=>row.active===false));
+  const booked=await order(hash(),'astrology');
+  assert.equal(booked.kind,'consultation');assert.equal(booked.credits,0);assert.equal(booked.status,'pending');assert.equal(booked.booking_status,'awaiting_payment');assert.equal(booked.amount_vnd,600000);
+  const rows=await json(`select jsonb_agg(jsonb_build_object('id',id,'active',active)) from public.eva_products where id in ('mother-baby','lenormand','astrology')`);assert.ok(rows.every(row=>row.active===true));
   await sql(`update public.eva_settings set config=config||'{"pricing_mode":"paid"}'::jsonb where id=true`);
  });
  await t.test('free successful-reading events are idempotent and included in aggregate analytics',async()=>{

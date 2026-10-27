@@ -120,7 +120,7 @@ export function createCommerceHandler(environment: Environment,fetcher: typeof f
    if (body.action==='catalog') { assertKeys([]); return json({catalog:await catalog()}); }
    if (body.action==='track_event') {
     assertKeys(['name','page']);
-    if (!['page_view','start_chat','pricing_view'].includes(String(body.name)) || !['landing','app','pricing','support'].includes(String(body.page))) throw new ApiError(400,'Unsupported event.');
+    if (!['page_view','start_chat','pricing_view'].includes(String(body.name)) || !['landing','app','pricing','support','terms'].includes(String(body.page))) throw new ApiError(400,'Unsupported event.');
     // Anonymous events receive no reusable identifier, cookie or device profile.
     const visitorHash=deviceHash||await hashToken(crypto.randomUUID());
     await database('eva_events',{method:'POST',body:JSON.stringify({event:body.name,page:body.page,visitor_hash:visitorHash}),headers:{Prefer:'return=minimal'}});
@@ -135,22 +135,33 @@ export function createCommerceHandler(environment: Environment,fetcher: typeof f
    if (body.action==='wallet') {
     assertKeys([]); const hash=requireDevice(); const wallet=await rpc('commerce_wallet',{p_device_hash:hash});
     if (!record(wallet)||!uuid(wallet.id)) throw new ApiError(503,'Your wallet could not be loaded.');
-    const orders=await database(`eva_orders?wallet_id=eq.${wallet.id}&select=id,product_id,product_snapshot,kind,amount_vnd,credits,status,transfer_reference,contact_email,payment_note,created_at,transfer_sent_at,confirmed_at&order=created_at.desc&limit=100`);
+    const orders=await database(`eva_orders?wallet_id=eq.${wallet.id}&select=id,product_id,product_snapshot,kind,amount_vnd,credits,status,transfer_reference,contact_email,payment_note,customer_note,schedule_note,booking_status,created_at,transfer_sent_at,confirmed_at&order=created_at.desc&limit=100`);
     return json({wallet,orders});
    }
    if (body.action==='create_order'||body.action==='create_donation') {
-    assertKeys(body.action==='create_order'?['productId','idempotencyKey','contactEmail']:['amountVnd','idempotencyKey','contactEmail']);
+    assertKeys(body.action==='create_order'?['productId','idempotencyKey','contactEmail','customerNote']:['amountVnd','idempotencyKey','contactEmail']);
     const hash=requireDevice();
     if (!uuid(body.idempotencyKey) || (body.contactEmail!==undefined && body.contactEmail!=='' && !email(body.contactEmail))) throw new ApiError(400,'Use a valid order reference and email address.');
+    if (body.customerNote!==undefined && body.customerNote!=='' && !shortText(body.customerNote,500)) throw new ApiError(400,'The booking note could not be read.');
     if (body.action==='create_order' && (typeof body.productId!=='string'|| !/^[a-z0-9-]{1,64}$/.test(body.productId))) throw new ApiError(400,'Choose a reading option.');
     if (body.action==='create_donation'&&!integer(body.amountVnd,1000,10000000)) throw new ApiError(400,'Choose a donation between 1,000 and 10,000,000 VND.');
-    const order=await rpc('commerce_create_order',{p_device_hash:hash,p_product_id:body.action==='create_order'?body.productId:null,p_amount_vnd:body.action==='create_donation'?body.amountVnd:null,p_idempotency_key:body.idempotencyKey,p_contact_email:body.contactEmail?String(body.contactEmail).toLowerCase():null});
+    const order=await rpc('commerce_create_order',{p_device_hash:hash,p_product_id:body.action==='create_order'?body.productId:null,p_amount_vnd:body.action==='create_donation'?body.amountVnd:null,p_idempotency_key:body.idempotencyKey,p_contact_email:body.contactEmail?String(body.contactEmail).toLowerCase():null,p_customer_note:body.customerNote?String(body.customerNote):null});
     return json({order});
    }
    if (body.action==='transfer_sent') {
     assertKeys(['orderId']); const hash=requireDevice(); if (!uuid(body.orderId)) throw new ApiError(400,'Choose a valid order.');
     const order=await rpc('commerce_transfer_sent',{p_device_hash:hash,p_order_id:body.orderId});
     if (!order) throw new ApiError(404,'This order was not found in your wallet.');
+    return json({order});
+   }
+   if (body.action==='webhook_confirm') {
+    // Bank webhooks are verified by the app server, then confirmed with the internal secret.
+    if (!trustedServer) throw new ApiError(403,'Server authorization is required.');
+    assertKeys(['reference','amountVnd','externalId']);
+    if (typeof body.reference!=='string' || !/^EVA[A-F0-9]{12}$/.test(body.reference) || !integer(body.amountVnd,1000,10000000)) throw new ApiError(400,'The transfer could not be matched.');
+    if (body.externalId!==undefined && body.externalId!==null && body.externalId!=='' && !shortText(body.externalId,120)) throw new ApiError(400,'The transfer could not be matched.');
+    const order=await rpc('commerce_confirm_transfer',{p_reference:body.reference,p_amount_vnd:body.amountVnd,p_external_id:body.externalId?String(body.externalId):''});
+    if (!order) throw new ApiError(404,'This order was not found.');
     return json({order});
    }
    if (['reading_reserve','reading_finish','reading_refund','reading_record_event'].includes(body.action)) {
@@ -204,6 +215,13 @@ export function createCommerceHandler(environment: Environment,fetcher: typeof f
     assertKeys(['settings']); if (!validSettings(body.settings)) throw new ApiError(400,'Check the payment and website settings.');
     const settings=await rpc('commerce_admin_save',{p_action:'settings',p_data:body.settings,p_actor:user.id});
     return json({settings});
+   }
+   if (body.action==='admin_update_booking') {
+    assertKeys(['orderId','bookingStatus','scheduleNote']);
+    if (!uuid(body.orderId) || !['paid','scheduled','completed','cancelled'].includes(String(body.bookingStatus)) || (body.scheduleNote!==undefined && !shortText(body.scheduleNote,500))) throw new ApiError(400,'Check the booking status and note.');
+    const order=await rpc('commerce_update_booking',{p_order_id:body.orderId,p_actor:user.id,p_booking_status:body.bookingStatus,p_schedule_note:body.scheduleNote||''});
+    if (!order) throw new ApiError(404,'This order was not found.');
+    return json({order});
    }
    if (body.action==='admin_update_customer') {
     assertKeys(['customerId','displayName','notes']); if (!uuid(body.customerId)||!shortText(body.displayName,80)||!shortText(body.notes,2000)) throw new ApiError(400,'Check the customer name and notes.');

@@ -430,7 +430,7 @@ test('upstream timeout stays inside the deployed function window and returns a r
 test('legacy page rewrites recover reading links without catching API or asset routes', async () => {
   const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
   assert.ok(config.rewrites.some(rule => rule.source === '/reading/:path*' && rule.destination === '/index.html'));
-  assert.deepEqual(config.rewrites.map(rule => rule.source).sort(), ['/admin', '/pricing', '/support', '/donate', '/reading', '/reading/:path*', '/chat', '/calendar', '/journal', '/breathe', '/cards', '/rituals'].sort());
+  assert.deepEqual(config.rewrites.map(rule => rule.source).sort(), ['/admin', '/pricing', '/support', '/donate', '/terms', '/reading', '/reading/:path*', '/chat', '/calendar', '/journal', '/breathe', '/cards', '/rituals'].sort());
 });
 
 test('couple readings keep the same context and person-first instructions across hosted providers', async () => {

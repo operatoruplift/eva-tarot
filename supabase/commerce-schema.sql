@@ -51,8 +51,16 @@ create table if not exists public.eva_orders (
   transfer_sent_at timestamptz,
   confirmed_at timestamptz,
   reviewed_by uuid,
+  customer_note text not null default '' check (length(customer_note) <= 500),
+  schedule_note text not null default '' check (length(schedule_note) <= 500),
+  booking_status text not null default 'none' check (booking_status in ('none','awaiting_payment','paid','scheduled','completed','cancelled')),
   unique(wallet_id,idempotency_key)
 );
+alter table public.eva_orders add column if not exists customer_note text not null default '';
+alter table public.eva_orders add column if not exists schedule_note text not null default '';
+alter table public.eva_orders add column if not exists booking_status text not null default 'none';
+alter table public.eva_orders drop constraint if exists eva_orders_booking_status_check;
+alter table public.eva_orders add constraint eva_orders_booking_status_check check (booking_status in ('none','awaiting_payment','paid','scheduled','completed','cancelled'));
 create index if not exists eva_orders_product on public.eva_orders(product_id);
 create index if not exists eva_orders_wallet_created on public.eva_orders(wallet_id,created_at desc);
 create index if not exists eva_orders_confirmed_at on public.eva_orders(confirmed_at desc) where status='confirmed';
@@ -88,11 +96,13 @@ create table if not exists public.eva_events (
   id uuid primary key default gen_random_uuid(),
   event text not null check (event in ('landing_view','page_view','start_chat','pricing_view','checkout_started','reading_completed')),
   reading_id uuid unique,
-  page text check (page in ('landing','app','pricing','support')),
+  page text check (page in ('landing','app','pricing','support','terms')),
   visitor_hash text not null check (visitor_hash ~ '^[a-f0-9]{64}$'),
   created_at timestamptz not null default now()
 );
-alter table public.eva_events add column if not exists page text check (page in ('landing','app','pricing','support'));
+alter table public.eva_events add column if not exists page text;
+alter table public.eva_events drop constraint if exists eva_events_page_check;
+alter table public.eva_events add constraint eva_events_page_check check (page is null or page in ('landing','app','pricing','support','terms'));
 alter table public.eva_events drop constraint if exists eva_events_event_check;
 alter table public.eva_events add constraint eva_events_event_check check (event in ('landing_view','page_view','start_chat','pricing_view','checkout_started','reading_completed'));
 create index if not exists eva_events_created on public.eva_events(created_at desc);
@@ -126,20 +136,24 @@ end $$;
 insert into public.eva_settings(id,config) values (true,'{"pricing_mode":"consultations","free_trial_credits":0,"donations_enabled":true,"bank_name":"Techcombank","account_name":"","account_number":"6886439999","bank_bin":"970407","qr_image":"/payments/donation-qr.svg","qr_payload":"00020101021138540010A00000072701240006970407011068864399990208QRIBFTTA53037045802VN8300840063047F8B","support_email":"","announcement_en":"","announcement_vi":"","donation_suggested_vnd":[25000,50000,100000],"hero_title_en":"A little clarity, one conversation at a time.","hero_title_vi":"Một cuộc trò chuyện, thêm một chút rõ ràng.","hero_description_en":"Explore what is on your mind with tarot readings that speak to your real life.","hero_description_vi":"Cùng những lá bài nhìn lại điều bạn đang băn khoăn, bằng lời giải dễ hiểu và gần gũi."}'::jsonb)
 on conflict(id) do nothing;
 
+-- TODO(owner): Confirm the one-question price (currently 25000 VND). The transcribed
+-- amount looks truncated or unclear. Do not guess a replacement.
 insert into public.eva_products(id,title_en,title_vi,description_en,description_vi,price_vnd,credits,category,kind,active,sort_order) values
  ('one-question','One question','1 câu hỏi','One credit for one completed AI reply, with any card count. Follow-up questions use another credit.','Một lượt cho một câu trả lời AI hoàn tất, với bất kỳ số lá bài nào. Mỗi lần hỏi tiếp dùng thêm một lượt.',25000,1,'questions','credits',true,10),
  ('three-questions','Three questions','3 câu hỏi','Three completed AI replies. Each follow-up reply uses one credit.','Ba câu trả lời AI hoàn tất. Mỗi câu trả lời cho lần hỏi tiếp dùng một lượt.',60000,3,'questions','credits',true,20),
  ('five-questions','Five questions','5 câu hỏi','Five completed AI replies. Each follow-up reply uses one credit.','Năm câu trả lời AI hoàn tất. Mỗi câu trả lời cho lần hỏi tiếp dùng một lượt.',95000,5,'questions','credits',true,30),
- ('love-reading','Relationship consultation','Tình cảm','A personal consultation; availability is confirmed separately.','Phiên tư vấn riêng; lịch hẹn được xác nhận riêng.',70000,0,'love','consultation',false,40),
- ('work-reading','Work or study consultation','Học tập – công việc','A personal consultation about work or study.','Phiên tư vấn riêng về học tập hoặc công việc.',70000,0,'work','consultation',false,50),
- ('life-reading','Life or choices consultation','Cuộc sống và lựa chọn','A personal consultation about a situation or choice.','Phiên tư vấn riêng về hoàn cảnh hoặc lựa chọn.',70000,0,'life','consultation',false,60),
- ('one-month','One-month overview','Tổng quan 1 tháng','A personal tarot consultation for the coming month.','Phiên tư vấn tarot riêng cho tháng tới.',100000,0,'packages','consultation',false,70),
- ('three-months','Three-month overview','Tổng quan 3 tháng','A personal tarot consultation for the next three months.','Phiên tư vấn tarot riêng cho ba tháng tới.',250000,0,'packages','consultation',false,80),
- ('six-months','Six-month overview','Tổng quan 6 tháng','A personal tarot consultation for the next six months.','Phiên tư vấn tarot riêng cho sáu tháng tới.',450000,0,'packages','consultation',false,90),
- ('mother-baby','Mother and baby consultation','Mẹ và bé','Manual service, not an AI medical or pregnancy reading.','Dịch vụ riêng; không phải tư vấn AI về y tế hoặc thai kỳ.',150000,0,'other','consultation',false,100),
- ('lenormand','Lenormand · three questions','Lenormand · 3 câu hỏi','Manual Lenormand service; not included in the AI tarot deck.','Dịch vụ Lenormand riêng; không có trong bộ tarot AI.',100000,0,'other','consultation',false,110),
- ('astrology','Lifetime astrology consultation','Tử vi trọn đời','Manual astrology service; not included in AI tarot.','Dịch vụ tử vi riêng; không có trong tarot AI.',600000,0,'other','consultation',false,120)
+ ('love-reading','Relationship consultation','Tình cảm','A human consultation with Eva. Pay by bank transfer, then Eva confirms the booking.','Buổi tư vấn trực tiếp với Eva. Chuyển khoản, rồi Eva xác nhận lịch.',70000,0,'love','consultation',true,40),
+ ('work-reading','Work or study consultation','Học tập – công việc','A human consultation about work or study. Pay by bank transfer, then Eva confirms the booking.','Buổi tư vấn trực tiếp về học tập hoặc công việc. Chuyển khoản, rồi Eva xác nhận lịch.',70000,0,'work','consultation',true,50),
+ ('life-reading','Life or choices consultation','Cuộc sống và lựa chọn','A human consultation about a situation or choice. Pay by bank transfer, then Eva confirms the booking.','Buổi tư vấn trực tiếp về hoàn cảnh hoặc lựa chọn. Chuyển khoản, rồi Eva xác nhận lịch.',70000,0,'life','consultation',true,60),
+ ('one-month','One-month overview','Tổng quan 1 tháng','A human tarot consultation for the coming month. Pay by bank transfer, then Eva confirms the booking.','Buổi tư vấn tarot trực tiếp cho tháng tới. Chuyển khoản, rồi Eva xác nhận lịch.',100000,0,'packages','consultation',true,70),
+ ('three-months','Three-month overview','Tổng quan 3 tháng','A human tarot consultation for the next three months. Pay by bank transfer, then Eva confirms the booking.','Buổi tư vấn tarot trực tiếp cho ba tháng tới. Chuyển khoản, rồi Eva xác nhận lịch.',250000,0,'packages','consultation',true,80),
+ ('six-months','Six-month overview','Tổng quan 6 tháng','A human tarot consultation for the next six months. Pay by bank transfer, then Eva confirms the booking.','Buổi tư vấn tarot trực tiếp cho sáu tháng tới. Chuyển khoản, rồi Eva xác nhận lịch.',450000,0,'packages','consultation',true,90),
+ ('mother-baby','Mother and baby consultation','Mẹ và bé','A human consultation. Not an AI medical or pregnancy reading. Pay by bank transfer, then Eva confirms the booking.','Buổi tư vấn trực tiếp; không phải tư vấn AI về y tế hoặc thai kỳ. Chuyển khoản, rồi Eva xác nhận lịch.',150000,0,'other','consultation',true,100),
+ ('lenormand','Lenormand · three questions','Lenormand · 3 câu hỏi','A human Lenormand consultation; not included in the AI tarot deck. Pay by bank transfer, then Eva confirms the booking.','Buổi tư vấn Lenormand trực tiếp; không có trong bộ tarot AI. Chuyển khoản, rồi Eva xác nhận lịch.',100000,0,'other','consultation',true,110),
+ ('astrology','Lifetime astrology consultation','Tử vi trọn đời','A human astrology consultation; not included in AI tarot. Pay by bank transfer, then Eva confirms the booking.','Buổi tư vấn tử vi trực tiếp; không có trong tarot AI. Chuyển khoản, rồi Eva xác nhận lịch.',600000,0,'other','consultation',true,120)
 on conflict(id) do nothing;
+-- Re-applying this schema opens consultation booking that is still switched off.
+update public.eva_products set active=true,updated_at=clock_timestamp() where kind='consultation' and active=false;
 
 drop function if exists public.commerce_take_quota(text,text);
 create or replace function public.commerce_take_quota(p_ip_hash text,p_device_hash text default null,p_is_server boolean default false)
@@ -186,30 +200,32 @@ begin
  return jsonb_build_object('id',w.id,'credits',w.credits,'createdAt',w.created_at);
 end $$;
 
-create or replace function public.commerce_create_order(p_device_hash text,p_product_id text,p_amount_vnd integer,p_idempotency_key uuid,p_contact_email text default null)
+drop function if exists public.commerce_create_order(text,text,integer,uuid,text);
+create or replace function public.commerce_create_order(p_device_hash text,p_product_id text,p_amount_vnd integer,p_idempotency_key uuid,p_contact_email text default null,p_customer_note text default null)
 returns jsonb language plpgsql security invoker set search_path='' as $$
-declare w public.eva_wallets; p public.eva_products; o public.eva_orders; cfg jsonb;
+declare w public.eva_wallets; p public.eva_products; o public.eva_orders; cfg jsonb; v_note text:=coalesce(p_customer_note,'');
 begin
+ if length(v_note)>500 then raise exception using errcode='22023',message='Invalid booking note'; end if;
  perform public.commerce_wallet(p_device_hash);
  select * into w from public.eva_wallets where device_hash=p_device_hash for update;
  select * into o from public.eva_orders where wallet_id=w.id and idempotency_key=p_idempotency_key;
  if found then
-   if o.product_id is distinct from p_product_id or (p_product_id is null and o.amount_vnd is distinct from p_amount_vnd) then raise exception using errcode='22023',message='Idempotency key already used'; end if;
+   if o.product_id is distinct from p_product_id or (p_product_id is null and o.amount_vnd is distinct from p_amount_vnd) or o.customer_note is distinct from v_note then raise exception using errcode='22023',message='Idempotency key already used'; end if;
    return to_jsonb(o)-'idempotency_key';
  end if;
  if (select count(*) from public.eva_orders where wallet_id=w.id and status in ('pending','transfer_sent') and created_at>clock_timestamp()-interval '1 day')>=10 then raise exception using errcode='P0001',message='Too many pending orders'; end if;
  if p_product_id is null then
    select config into cfg from public.eva_settings where id=true;
    if coalesce((cfg->>'donations_enabled')::boolean,false) is not true or p_amount_vnd is null or p_amount_vnd not between 1000 and 10000000 then raise exception using errcode='22023',message='Donation is unavailable'; end if;
-   insert into public.eva_orders(wallet_id,idempotency_key,product_snapshot,kind,amount_vnd,credits,contact_email)
-   values(w.id,p_idempotency_key,'{"title_en":"Voluntary donation","title_vi":"Ủng hộ tự nguyện"}','donation',p_amount_vnd,0,p_contact_email) returning * into o;
+   insert into public.eva_orders(wallet_id,idempotency_key,product_snapshot,kind,amount_vnd,credits,contact_email,customer_note,booking_status)
+   values(w.id,p_idempotency_key,'{"title_en":"Voluntary donation","title_vi":"Ủng hộ tự nguyện"}','donation',p_amount_vnd,0,p_contact_email,'','none') returning * into o;
  else
    select * into p from public.eva_products where id=p_product_id and active=true for share;
    if not found then raise exception using errcode='22023',message='This option is unavailable'; end if;
    select config into cfg from public.eva_settings where id=true;
    if p.kind='credits' and cfg->>'pricing_mode'='consultations' then raise exception using errcode='22023',message='AI readings are currently free'; end if;
-   insert into public.eva_orders(wallet_id,idempotency_key,product_id,product_snapshot,kind,amount_vnd,credits,contact_email)
-   values(w.id,p_idempotency_key,p.id,to_jsonb(p),p.kind,p.price_vnd,p.credits,p_contact_email) returning * into o;
+   insert into public.eva_orders(wallet_id,idempotency_key,product_id,product_snapshot,kind,amount_vnd,credits,contact_email,customer_note,booking_status)
+   values(w.id,p_idempotency_key,p.id,to_jsonb(p),p.kind,p.price_vnd,p.credits,p_contact_email,v_note,case when p.kind='consultation' then 'awaiting_payment' else 'none' end) returning * into o;
  end if;
  -- Contact details are unverified labels only, never credentials or account links.
  if p_contact_email is not null then update public.eva_wallets set contact_email=p_contact_email where id=w.id; end if;
@@ -247,9 +263,45 @@ begin
    update public.eva_wallets set credits=credits+o.credits where id=o.wallet_id;
  end if;
  update public.eva_orders set status=case when p_confirm then 'confirmed' else 'rejected' end,
- confirmed_at=case when p_confirm then clock_timestamp() else null end,reviewed_by=p_actor,payment_note=left(coalesce(p_note,''),500)
+ confirmed_at=case when p_confirm then clock_timestamp() else null end,reviewed_by=p_actor,payment_note=left(coalesce(p_note,''),500),
+ booking_status=case when o.kind='consultation' and p_confirm then 'paid' when o.kind='consultation' and not p_confirm then 'cancelled' else o.booking_status end
  where id=o.id returning * into o;
  insert into public.eva_admin_audit(actor_id,action,record_id) values(p_actor,case when p_confirm then 'confirm_payment' else 'reject_payment' end,o.id::text);
+ return to_jsonb(o)-'idempotency_key';
+end $$;
+
+create or replace function public.commerce_confirm_transfer(p_reference text,p_amount_vnd integer,p_external_id text default '')
+returns jsonb language plpgsql security invoker set search_path='' as $$
+declare o public.eva_orders;
+begin
+ if p_reference is null or p_reference !~ '^EVA[A-F0-9]{12}$' or p_amount_vnd is null or p_amount_vnd not between 1000 and 10000000 then raise exception using errcode='22023',message='Invalid transfer confirmation'; end if;
+ select * into o from public.eva_orders where transfer_reference=p_reference for update;
+ if not found then return null; end if;
+ if o.amount_vnd is distinct from p_amount_vnd then raise exception using errcode='22023',message='Transfer amount does not match the order'; end if;
+ if o.status='confirmed' then return to_jsonb(o)-'idempotency_key'; end if;
+ if o.status='rejected' then raise exception using errcode='22023',message='Rejected payment requires a new order'; end if;
+ if o.credits>0 and o.kind='credits' then
+   insert into public.eva_credit_ledger(wallet_id,order_id,delta,reason) values(o.wallet_id,o.id,o.credits,'purchase');
+   update public.eva_wallets set credits=credits+o.credits where id=o.wallet_id;
+ end if;
+ update public.eva_orders set status='confirmed',confirmed_at=clock_timestamp(),payment_note=left('webhook:'||coalesce(p_external_id,''),500),
+   booking_status=case when o.kind='consultation' then 'paid' else o.booking_status end
+ where id=o.id returning * into o;
+ insert into public.eva_admin_audit(actor_id,action,record_id) values('00000000-0000-4000-8000-0000000000a1','webhook_confirm',o.id::text);
+ return to_jsonb(o)-'idempotency_key';
+end $$;
+
+create or replace function public.commerce_update_booking(p_order_id uuid,p_actor uuid,p_booking_status text,p_schedule_note text default '')
+returns jsonb language plpgsql security invoker set search_path='' as $$
+declare o public.eva_orders;
+begin
+ if p_actor is null or p_booking_status not in ('paid','scheduled','completed','cancelled') or p_schedule_note is null or length(p_schedule_note)>500 then raise exception using errcode='22023',message='Invalid booking update'; end if;
+ select * into o from public.eva_orders where id=p_order_id for update;
+ if not found then return null; end if;
+ if o.kind<>'consultation' then raise exception using errcode='22023',message='Not a consultation booking'; end if;
+ if o.status<>'confirmed' then raise exception using errcode='22023',message='Confirm the transfer before updating this booking'; end if;
+ update public.eva_orders set booking_status=p_booking_status,schedule_note=p_schedule_note where id=o.id returning * into o;
+ insert into public.eva_admin_audit(actor_id,action,record_id) values(p_actor,'update_booking',o.id::text);
  return to_jsonb(o)-'idempotency_key';
 end $$;
 

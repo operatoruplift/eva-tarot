@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PUBLIC_DONATION_DETAILS, PUBLIC_REFERENCE_CATALOG, canPurchaseProduct, publicDonationFallbackAllowed } from '../src/lib/public-catalog.ts';
+import { ONE_QUESTION_PRICE_TODO, ONE_QUESTION_PRICE_VND, PUBLIC_DONATION_DETAILS, PUBLIC_REFERENCE_CATALOG, catalogProducts, canPurchaseProduct, publicDonationFallbackAllowed } from '../src/lib/public-catalog.ts';
 import { SOURCE_DONATION_QR } from '../src/lib/vietqr.ts';
 
 test('the owner reference menu retains the supplied prices without enabling checkout', () => {
@@ -20,6 +20,14 @@ test('a cached paid catalog cannot sell during an outage and a successful catalo
   assert.equal(canPurchaseProduct(credit, { pricing_mode: 'free_trial' }, true), true);
   assert.equal(canPurchaseProduct(manual, { pricing_mode: 'consultations' }, true), true);
   assert.equal(canPurchaseProduct(credit, {}, true), false);
+});
+test('sale rows can be offered while the one-question amount stays unconfirmed', () => {
+  const sale = catalogProducts(true);
+  assert.equal(sale.find(product => product.id === 'one-question')?.price_vnd, ONE_QUESTION_PRICE_VND);
+  assert.match(ONE_QUESTION_PRICE_TODO, /25000/);
+  assert.match(ONE_QUESTION_PRICE_TODO, /Do not guess/);
+  assert.equal(sale.every(product => product.active), true);
+  assert.equal(sale.filter(product => product.kind === 'consultation').length, 9);
 });
 test('public donation details preserve bank routing without exposing a legal name', () => {
   assert.equal(PUBLIC_DONATION_DETAILS.qr_payload, SOURCE_DONATION_QR);
