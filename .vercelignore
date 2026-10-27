@@ -7,5 +7,9 @@ playwright-report
 test-results
 *.tsbuildinfo
 dist
-supabase
+supabase/migrations
+supabase/templates
+supabase/*.sql
+supabase/functions/journal
+supabase/functions/customer-account
 *.zip
