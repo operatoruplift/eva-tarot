@@ -1,5 +1,17 @@
 # Eva Tarot verification record
 
+## 27 October 2026 — couple-reading candidate, awaiting prose acceptance
+
+Application source `fa0fd32`; [GitHub CI passed](https://github.com/operatoruplift/eva-tarot/actions/runs/40461228278). Staged deployment `dpl_ATzrk6DdYVXMdx8WnJhRTCjkq4gu` is READY at https://evara-dourjw9t8-operatoruplift.vercel.app. **It has not been promoted to the public domains.** The apex and both old Vercel aliases still serve the prior `/assets/index-yqJNVbZ6.js` release.
+
+- Full suite: **315 passed, 1 optional isolated-database test skipped, 0 failed** (316 total). Local and Vercel TypeScript/production builds passed, with the existing lazy AI bundle-size warnings. Independent code and TypeScript reviews approved the source changes.
+- The hosted English/Vietnamese briefs and compact local prompt separate each person's possible perspective, positives, difficulties and advice. Actual card meanings/positions, current user corrections and perspective are retained. Other questions keep their per-card detail. Narrow follow-ups, including no-card chat, answer only the requested part; continuations resume the existing outline.
+- Regressions cover 1/3/10-card and no-card conversations, stale Love metadata, uncertain private thoughts, latest-user corrections, both hosted provider payloads and local context retention. An independent 480-case local prompt matrix stayed within the existing 5,400-byte limit; original-user anchors remain covered by the automated suite. Actual on-device inference was not re-tested.
+- **Live prose acceptance remains incomplete.** Five bounded English/Vietnamese synthetic pairs were checked while revising the brief. All requests returned 200. The final pair used five sections and neutral English pronouns, but still inferred reciprocated interest, mutual respect or comfortable time together from reported warm replies. The Vietnamese response also retained some formal phrasing. Prompt tests do not prove these inference errors are fixed. See [actual-output QA](docs/RELATIONSHIP_READING_QA.md).
+- Final pair latency was 8.35 seconds in English and 8.36 seconds in Vietnamese. Health returned `mode: ai`. Deployment source hashes for the previous candidate matched the local prompt files, ruling out testing a stale source upload.
+- All ten synthetic wallets/readings and their usage-ledger/completion-event records were removed using exact test identifiers with guards against orders or customer accounts. No payment was created or confirmed. Public customer data and configuration were not changed.
+- The AI model, output-token limits, credit/trial rules, bank routing and existing US$5 non-refreshing Gateway limit were not changed. Further prose work must not increase or reset that limit. No claim of public release or complete prose-quality approval is made for this candidate.
+
 ## 22 October 2026 — payment privacy and prepared customer recovery
 
 Application source `2454ec4`; [GitHub CI passed](https://github.com/operatoruplift/eva-tarot/actions/runs/39747434990). Production deployment `dpl_35nB7584iti6kZeqJhuowYnmQjzY` is READY at https://evatarot.xyz, with both old Vercel aliases on the same release. Commerce Edge v5 and journal v2 are deployed.
