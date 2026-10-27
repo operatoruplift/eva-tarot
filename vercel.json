@@ -5,7 +5,8 @@
   "outputDirectory": "dist",
   "regions": ["sin1"],
   "functions": {
-    "api/*.mjs": {"maxDuration": 90, "includeFiles": "src/data/**"}
+    "api/*.mjs": {"maxDuration": 90, "includeFiles": "{src/data/**,src/lib/public-catalog.ts,src/lib/vietqr.ts,src/lib/commerce.ts,supabase/functions/commerce/index.ts}"},
+    "api/payments/*.mjs": {"maxDuration": 90, "includeFiles": "{src/data/**,src/lib/public-catalog.ts,src/lib/vietqr.ts,src/lib/commerce.ts,supabase/functions/commerce/index.ts}"}
   },
   "rewrites": [
     {"source": "/admin", "destination": "/index.html"},
