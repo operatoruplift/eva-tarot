@@ -248,7 +248,7 @@ The settings are listed, with comments, in [`.env.example`](.env.example). Never
 <summary><b>Deploy</b></summary>
 <br>
 
-Deployment is an explicit Vercel action; a GitHub-to-Vercel integration has not been verified. [`vercel.json`](vercel.json) serves `dist/` from the `sin1` region, runs the `api/` functions with a 90-second limit, and rewrites the app routes to `index.html`.
+The Vercel project `evara` deploys this repository: every push to `main` goes to production at https://evatarot.xyz (also evatarot.vercel.app; www.evatarot.xyz redirects to it), and other branches get preview deployments. A production deploy can also be made from the CLI, as some earlier ones were, with the commands below. [`vercel.json`](vercel.json) serves `dist/` from the `sin1` region, runs the `api/` functions with a 90-second limit, and rewrites the app routes to `index.html`.
 
 ```bash
 npm run build
