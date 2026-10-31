@@ -17,6 +17,7 @@
 <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=white&labelColor=344D3D" alt="React 19">
 <img src="https://img.shields.io/badge/PWA-installable-5A0FC8?style=flat-square&logo=pwa&logoColor=white&labelColor=344D3D" alt="Installable PWA">
 <img src="https://img.shields.io/badge/node-24.x-339933?style=flat-square&logo=nodedotjs&logoColor=white&labelColor=344D3D" alt="Node 24">
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-6F6163?style=flat-square&labelColor=344D3D" alt="License: MIT"></a>
 
 <h3>A little clarity, one conversation at a time.</h3>
 
@@ -316,6 +317,6 @@ After a deploy, verify both public aliases, the manifest, bundles, all 78 card i
 
 <br>
 
-<p align="center"><sub>This repository has no license file. Card artwork is public-domain Rider-Waite-Smith, not licensed Gilded Tarot artwork (see <a href="public/cards/ATTRIBUTION.md">ATTRIBUTION</a>); the self-hosted Inter and Cormorant fonts are under the SIL Open Font License, and the optional WebLLM runtime and Qwen3 models are Apache 2.0.</sub></p>
+<p align="center"><sub>The code is MIT licensed (see <a href="LICENSE">LICENSE</a>); the Eva Tarot name and brand belong to the business it was built for. Card artwork is public-domain Rider-Waite-Smith, not licensed Gilded Tarot artwork (see <a href="public/cards/ATTRIBUTION.md">ATTRIBUTION</a>); the self-hosted Inter and Cormorant fonts are under the SIL Open Font License, and the optional WebLLM runtime and Qwen3 models are Apache 2.0.</sub></p>
 
 <p align="center"><sub>Built by <a href="https://rvaclassic.xyz">Matt Sim</a>, founder of <a href="https://operatoruplift.com">Operator Uplift</a>. More builds at <a href="https://github.com/operatoruplift">github.com/operatoruplift</a>. Want one built for your product? <a href="https://cal.com/rvaclassic/15min">Book a 15-minute call</a>.</sub></p>

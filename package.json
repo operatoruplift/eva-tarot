@@ -1,5 +1,6 @@
 {
   "name": "eva-tarot",
+  "license": "MIT",
   "private": true,
   "version": "1.1.0",
   "description": "A conversation-led tarot PWA with readings, a saved journal, a calendar and an English and Vietnamese interface.",
